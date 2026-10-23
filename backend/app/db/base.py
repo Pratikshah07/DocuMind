@@ -7,8 +7,12 @@ Column types are chosen to work on both PostgreSQL (production) and SQLite
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, MetaData, Uuid, func
+from sqlalchemy import JSON, DateTime, MetaData, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# JSONB on PostgreSQL (indexable, compact), plain JSON elsewhere.
+JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 # Deterministic constraint names so Alembic autogenerate produces stable migrations.
 NAMING_CONVENTION = {
@@ -29,12 +33,12 @@ class Base(DeclarativeBase):
 
 
 class UUIDPrimaryKeyMixin:
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4, sort_order=-100)
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False, sort_order=100
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -42,4 +46,5 @@ class TimestampMixin:
         onupdate=utcnow,
         server_default=func.now(),
         nullable=False,
+        sort_order=100,
     )

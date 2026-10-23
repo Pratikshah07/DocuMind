@@ -6,11 +6,20 @@ different database before anything connects.
 
 from collections.abc import Iterator
 from functools import lru_cache
+from typing import Any
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
+    # SQLite ignores FOREIGN KEY / ON DELETE CASCADE unless this is on, per connection.
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def build_engine(url: str, *, echo: bool = False, connect_timeout: int = 5) -> Engine:
@@ -18,10 +27,16 @@ def build_engine(url: str, *, echo: bool = False, connect_timeout: int = 5) -> E
     if url.startswith("sqlite"):
         # Background processing uses its own session on another thread.
         kwargs["connect_args"] = {"check_same_thread": False}
+        if ":memory:" in url:
+            # One shared connection, otherwise every connection gets its own empty database.
+            kwargs["poolclass"] = StaticPool
     elif url.startswith("postgresql"):
         # Fail fast instead of hanging when the DB is down (e.g. a Docker port proxy with no backend).
         kwargs["connect_args"] = {"connect_timeout": connect_timeout}
-    return create_engine(url, **kwargs)
+    engine = create_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
 
 
 @lru_cache

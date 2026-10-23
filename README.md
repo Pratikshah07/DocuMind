@@ -9,10 +9,11 @@ answers questions about your documents with retrieval-augmented generation.
 > [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)).
 >
 > **Working now:** the React frontend (running on local sample data), and a
-> FastAPI backend skeleton with configuration, structured logging, PostgreSQL,
-> Alembic and a health endpoint.
+> FastAPI backend with PostgreSQL and Alembic. The backend has document upload
+> with content-based validation (file type detected from its bytes, plus a size
+> limit), file storage, and endpoints to list, view, download and delete documents.
 >
-> **Coming next:** uploads and storage, OCR, extraction, analytics, and RAG chat.
+> **Coming next:** OCR, extraction, connecting the frontend, analytics, and RAG chat.
 
 ## Stack
 

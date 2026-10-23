@@ -18,24 +18,17 @@ os.environ["ENVIRONMENT"] = "test"
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("LOG_FORMAT", "console")
 
-from sqlalchemy.pool import StaticPool  # noqa: E402
-
 from app.core.config import Settings, get_settings  # noqa: E402
 from app.db.session import build_engine, get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Base  # noqa: E402
+from app.services.storage import LocalStorage  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    url = os.environ["DATABASE_URL"]
-    if url.startswith("sqlite") and ":memory:" in url:
-        from sqlalchemy import create_engine
-
-        # One shared connection so every session sees the same in-memory DB.
-        eng = create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    else:
-        eng = build_engine(url)
+    eng = build_engine(os.environ["DATABASE_URL"])
+    Base.metadata.drop_all(eng)  # a previous interrupted run may have left tables behind
     Base.metadata.create_all(eng)
     yield eng
     Base.metadata.drop_all(eng)
@@ -58,6 +51,11 @@ def db_session(engine: Engine) -> Iterator[Session]:
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return get_settings().model_copy(update={"storage_path": tmp_path / "storage"})
+
+
+@pytest.fixture
+def storage(settings: Settings) -> LocalStorage:
+    return LocalStorage(settings.storage_path)
 
 
 @pytest.fixture
