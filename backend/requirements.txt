@@ -1,0 +1,13 @@
+# Runtime dependencies. Grouped by the phase that introduced them.
+
+# --- Web / API ---
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+pydantic-settings>=2.6
+python-multipart>=0.0.18
+
+# --- Database ---
+SQLAlchemy>=2.0.36
+alembic>=1.14
+psycopg[binary]>=3.2

@@ -1,0 +1,6 @@
+# Normalize line endings: LF in the repo and working tree (Docker/shell scripts need LF).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
