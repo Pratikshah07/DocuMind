@@ -40,12 +40,13 @@ def test_upload_pdf_persists_row_and_file(client: TestClient, db_session: Sessio
 
     response = upload(client, content, "Northwind Invoice 1048.pdf")
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     body = response.json()
     assert body["original_filename"] == "Northwind Invoice 1048.pdf"
     assert body["mime_type"] == "application/pdf"
     assert body["size_bytes"] == len(content)
-    assert body["status"] == "UPLOADED"
+    assert body["status"] == "UPLOADED"  # the response is sent before processing starts
+    assert "job_id" in body
     assert "storage_key" not in body  # storage layout is never exposed
     assert response.headers["Location"] == f"/api/documents/{body['id']}"
 
@@ -67,7 +68,7 @@ def test_upload_pdf_persists_row_and_file(client: TestClient, db_session: Sessio
 def test_upload_images(client: TestClient, storage, content, filename, mime, stored_ext) -> None:
     response = upload(client, content, filename, mime)
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     assert response.json()["mime_type"] == mime
     assert stored_files(storage) == [f"{response.json()['id']}{stored_ext}"]
 
@@ -75,7 +76,7 @@ def test_upload_images(client: TestClient, storage, content, filename, mime, sto
 def test_upload_sanitizes_traversal_filename(client: TestClient, storage) -> None:
     response = upload(client, make_pdf(), "..\\..\\secrets\\invoice.pdf")
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     assert response.json()["original_filename"] == "invoice.pdf"
     assert stored_files(storage) == [f"{response.json()['id']}.pdf"]
 
@@ -213,8 +214,10 @@ def test_get_document_detail(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["id"] == document_id
-    assert body["status"] == "UPLOADED"
-    for collection in ("pages", "fields", "line_items", "warnings"):
+    # Processing ran in the background before the client call returned (TestClient semantics).
+    assert body["status"] == "COMPLETED"
+    assert [p["page_number"] for p in body["pages"]] == [1]
+    for collection in ("fields", "line_items", "warnings"):  # filled by extraction (Phase 4)
         assert body[collection] == []
 
 
@@ -257,7 +260,9 @@ def test_delete_removes_row_children_and_file(client: TestClient, db_session: Se
     document_id = uuid.UUID(upload(client, make_pdf(), "invoice.pdf").json()["id"])
     db_session.add_all(
         [
-            DocumentPage(document_id=document_id, page_number=1, text="Invoice"),
+            DocumentPage(
+                document_id=document_id, page_number=2, text="Invoice"
+            ),  # page 1 came from processing
             ExtractedField(document_id=document_id, name="total", value="$10.00", confidence=0.9),
             LineItem(document_id=document_id, position=1, description="Widget", total=Decimal("10.00")),
             ValidationWarning(document_id=document_id, code="total_mismatch", message="Totals differ."),
@@ -273,6 +278,7 @@ def test_delete_removes_row_children_and_file(client: TestClient, db_session: Se
     for model in (DocumentPage, ExtractedField, LineItem, ValidationWarning):
         assert db_session.scalar(select(func.count()).select_from(model)) == 0
     assert stored_files(storage) == []
+    assert list((storage.root / "previews").rglob("*.png")) == []  # page previews removed too
     assert client.get(f"/api/documents/{document_id}").status_code == 404
 
 

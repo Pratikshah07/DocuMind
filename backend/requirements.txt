@@ -11,3 +11,11 @@ python-multipart>=0.0.18
 SQLAlchemy>=2.0.36
 alembic>=1.14
 psycopg[binary]>=3.2
+
+# --- Document processing (Phase 3) ---
+# PyMuPDF 2.x pulls in onnxruntime + layout models we don't use; stay on 1.x.
+pymupdf>=1.26,<2
+pillow>=11.0
+numpy>=2.1
+opencv-python-headless>=4.10
+pytesseract>=0.3.13  # wrapper around the Tesseract binary (installed separately)

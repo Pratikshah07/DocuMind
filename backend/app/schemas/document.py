@@ -39,10 +39,12 @@ class DocumentSummary(_ORMModel):
 
 class DocumentPageOut(_ORMModel):
     page_number: int
+    text: str | None = Field(description="Page text from the PDF text layer or OCR.")
     text_source: TextSource | None
-    ocr_confidence: float | None
-    width: int | None
-    height: int | None
+    ocr_confidence: float | None = Field(description="Mean Tesseract word confidence (0–1); OCR pages only.")
+    width: int | None = Field(description="Preview image width in px.")
+    height: int | None = Field(description="Preview image height in px.")
+    has_preview: bool = Field(description="A PNG is available at `/documents/{id}/pages/{n}/preview`.")
 
 
 class ExtractedFieldOut(_ORMModel):
@@ -94,6 +96,9 @@ class DocumentUploadResponse(_ORMModel):
     size_bytes: int
     status: DocumentStatus
     created_at: datetime
+    job_id: uuid.UUID = Field(
+        description="Processing job queued for this upload; poll `/documents/{id}/status`."
+    )
 
 
 class DocumentListResponse(BaseModel):

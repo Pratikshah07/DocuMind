@@ -12,8 +12,8 @@
 | 0 | Repository audit, plan, architecture | ✅ Done |
 | 1 | Backend skeleton: FastAPI, config, DB, health | ✅ Done |
 | 2 | Upload, validation, storage, document model, initial migration | ✅ Done |
-| 3 | PDF/image processing, preprocessing, OCR | ⏳ Next |
-| 4 | Classification, extraction, validation, confidence | — |
+| 3 | PDF/image processing, preprocessing, OCR | ✅ Done |
+| 4 | Classification, extraction, validation, confidence | ⏳ Next |
 | 5 | Frontend ↔ backend integration | — |
 | 6 | Analytics | — |
 | 7 | Embeddings, vector store, retrieval | — |
@@ -221,7 +221,7 @@ All routes under `/api`. JSON errors use one envelope:
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Liveness + DB/OCR/LLM/vector-store component checks |
-| POST | `/api/documents/upload` | Multipart upload → validates → stores → 201 `{id, status, …}` + `Location`. Phase 3 adds queueing (see D14) |
+| POST | `/api/documents/upload` | Multipart upload → validates → stores → queues processing → 202 `{id, status, job_id, …}` + `Location` (D20) |
 | GET | `/api/documents` | List with search, status, type, date range, sort, pagination |
 | GET | `/api/documents/{id}` | Detail incl. pages, fields, line items, warnings |
 | DELETE | `/api/documents/{id}` | Deletes rows, stored files, vectors |
@@ -374,6 +374,16 @@ upload → validate (ext + magic bytes + size) → store original → DB row (UP
 | D17 | Upload writes file → row (file deleted if the commit fails); delete removes row → file (orphan logged if file delete fails) | The DB never references a missing file |
 | D18 | Money is `NUMERIC(14,2)` in the DB and serialized as a JSON number | Exact storage; the UI wants numbers. Float precision is ample for display amounts |
 | D19 | `UploadSizeLimitMiddleware` rejects by `Content-Length` before multipart parsing; the service enforces the exact limit while streaming | Starlette otherwise spools the whole body to disk before validation runs |
+| D20 | Upload auto-queues processing and returns **202** (supersedes D14); `POST /process` is for retries/reprocessing | Approved 2026-10-24; matches the plan's API table |
+| D21 | Phase 3 terminal status is `COMPLETED`; Phase 4 inserts `EXTRACTING`/`VALIDATING` before it | Approved; no enum change needed |
+| D22 | Page previews (PNG, ≤1200 px wide) are produced in Phase 3, served by `GET /documents/{id}/pages/{n}/preview` | Approved; pages are rendered anyway, and the UI needs them in Phase 5 |
+| D23 | Low OCR confidence is recorded, not fatal; a document fails only if **no** page yields text | Approved; Phase 4 decides NEEDS_REVIEW from confidence + extraction. A blank page inside a document is normal |
+| D24 | PyMuPDF pinned `<2` | 2.x pulls in onnxruntime and layout models that are not used |
+| D25 | Tesseract via `pytesseract` behind `OCRService`; binary auto-detected (`PATH`, then `C:\Program Files\Tesseract-OCR`), overridable with `TESSERACT_CMD` | Works on Windows without editing PATH; engine is swappable |
+| D26 | Pages hold the last **successful** run: replaced in the COMPLETED transaction, cleared on failure; jobs run only from `QUEUED`; an active job → 409 unless older than the stale timeout | Retries and duplicate deliveries cannot create duplicate or stale pages; a crashed worker cannot block a document forever |
+| D27 | Deskew uses the projection-profile method on an adaptive-threshold ink mask | Measured: min-area-rect gave 80–90° on short text blocks, and a global threshold gave 18° on shadowed photos; projection profile is within 0.1° on both |
+| D28 | Photo profile includes adaptive `threshold` and non-local-means `denoise` (searchWindow 11) at a 2000 px working width | Measured on noisy, unevenly lit photos: without threshold Tesseract returned 0 characters; median/Gaussian denoise read 0/5 vs NL-means 5/5; 12 MP NL-means 10.7 s → 1.8 s at 2000 px |
+| D29 | `document_pages.width/height` are the **preview** image dimensions; OCR word boxes are returned by `OCRService` but not persisted yet | Phase 4 consumes boxes in-process; when stored they will be normalized to 0–1 so they map onto previews |
 
 ## Phase log
 
@@ -450,3 +460,89 @@ upload → validate (ext + magic bytes + size) → store original → DB row (UP
 - No duplicate detection (D15) and no `users` rows yet (Phase 9).
 - Test samples are synthetic and structurally minimal (the JPEG has a valid
   signature but isn't decodable). Rendered samples come with Phase 3.
+
+### Phase 3 — PDF/image processing, preprocessing, OCR (done)
+
+**Scope approved before implementation (2026-10-24):** upload auto-queues
+(D20), terminal status `COMPLETED` (D21), previews included (D22), low OCR
+confidence recorded rather than fatal (D23).
+
+**Implemented**
+- `pdf_service.py`: PyMuPDF open/validate (corrupt, encrypted, zero-page,
+  page limit), per-page text layer, rendering with a pixel budget. MuPDF's
+  stderr messages are suppressed (they can quote document internals).
+- `image_service.py`: full Pillow decode (`verify()` + `load()`),
+  EXIF orientation, decompression-bomb guard.
+- `preprocessing_service.py`: named, configurable steps (resize,
+  grayscale, denoise, contrast, threshold, deskew) with separate profiles
+  for PDF renders and photos. Inputs are never mutated.
+- `ocr/`: `OCRService` ABC plus `TesseractOCR`, returning text, mean
+  confidence and word boxes. `OCRUnavailableError` and `OCRError` are separate.
+- `jobs.py`: `JobRunner` ABC, `BackgroundTaskRunner` (FastAPI) and
+  `InlineJobRunner`. Jobs take IDs only (queue-ready).
+- `pipeline.py`: `DocumentProcessor` runs PROCESSING → OCR (if needed) →
+  COMPLETED/FAILED and owns all status transitions and the consistency
+  rules (D26). The deleted-during-processing case is handled.
+- `processing_service.py`: enqueue (row lock + 409 + stale-job recovery)
+  and status.
+- **API:** upload returns 202 + `job_id`; new `POST /documents/{id}/process`,
+  `GET /documents/{id}/status`, `GET /documents/{id}/pages/{n}/preview`.
+  The detail endpoint now includes page text, source, OCR confidence and
+  `has_preview`. Delete also removes the previews. `/health` gained an `ocr` component.
+- **Config:** `TESSERACT_CMD`, `OCR_*`, `MAX_PAGES`, `MAX_IMAGE_PIXELS`,
+  `PDF_MIN_TEXT_CHARS`, `PREVIEW_MAX_WIDTH`, `PREPROCESS_*_STEPS`,
+  `PROCESSING_STALE_AFTER_SECONDS`.
+- **Dependencies:** `pymupdf<2`, `pillow`, `numpy`, `opencv-python-headless`,
+  `pytesseract`. All have Windows / Python 3.14 wheels (checked with
+  `pip install --dry-run --only-binary=:all:`).
+- **No schema change:** existing columns cover Phase 3, and `alembic check`
+  is clean at `0001`.
+
+**Tests**: real, decodable fixtures generated in code (`tests/samples.py`):
+text PDFs, scanned PDFs, mixed PDFs, encrypted, zero-page, corrupt and
+truncated files, PNG, JPEG, a skewed/noisy/shadowed "phone photo", and EXIF
+rotation. `FakeOCR` makes pipeline tests deterministic. Real-Tesseract tests
+are marked `requires_tesseract` (skipped only if the binary is missing).
+
+**Verification** (2026-10-25)
+- `pytest`: **180 passed** on SQLite and **180 passed** on Docker
+  PostgreSQL (the latter confirmed by `documind_test` commits 816 → 1552).
+  No skips: Tesseract 5.4.0 was present.
+- Mutation checks: removing the page replacement on success, the page
+  clearing on failure, the 409 guard, or the QUEUED-only guard each makes
+  tests fail.
+- `ruff check .` and `ruff format --check .`: clean (58 files).
+- Alembic: `heads`/`current` = `0001`, `check` → "No new upgrade operations detected."
+- **Live on Windows** (uvicorn + Docker Postgres + real Tesseract,
+  `TESSERACT_CMD` unset, so auto-detected):
+  - text PDF: embedded, 0.7 s
+  - scanned PDF: OCR, confidence 0.90, 3.1 s
+  - mixed PDF: page 1 embedded, page 2 OCR
+  - phone-style photo: confidence 0.92, 4.4 s
+  - corrupt PDF: `FAILED` / `corrupt_pdf` with a user-safe message
+  - reprocessing: attempt 2 keeps exactly one set of pages
+  - delete: 0 rows and 0 files left
+  - no document text in the server log
+- Frontend: not modified.
+
+**Limitations / follow-ups**
+- `BackgroundTasks` run in the API process: jobs are lost on restart
+  (stale-job recovery makes them retryable). A real queue would implement
+  `JobRunner` (Phase 11 if needed).
+- OCR accuracy was measured on synthetic documents only. Real receipts
+  (thermal paper, crumpled, small fonts) will need tuning. The preprocessing
+  profiles are configurable for that.
+- No orientation detection beyond EXIF and ±15° deskew: pages scanned at
+  90°/180° OCR poorly. Tesseract OSD could be added.
+- OCR word boxes are not persisted (D29). Per-page OCR is sequential, about
+  3–4 s per scanned page on this machine.
+- A document deleted mid-run between the final check and the commit can
+  leave orphaned preview files (logged). Rare; a storage sweep could
+  clean them up.
+- The Phase 2 limitations (chunked uploads, inline `GET /file` hardening)
+  are unchanged.
+
+**Manual setup (Windows)**
+- `winget install UB-Mannheim.TesseractOCR` (done on this machine: v5.4.0, `eng` + `osd`).
+- `pip install -r requirements-dev.txt` in `backend\` (adds the Phase 3 packages).
+- No migration needed, and the existing `.env` keeps working (new settings have defaults).

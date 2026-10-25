@@ -54,6 +54,11 @@ def get_sessionmaker() -> sessionmaker[Session]:
     return sessionmaker(bind=get_engine(), autoflush=False, expire_on_commit=False)
 
 
+def get_session_factory() -> sessionmaker[Session]:
+    """FastAPI dependency for code that outlives the request (background jobs open their own sessions)."""
+    return get_sessionmaker()
+
+
 def get_db() -> Iterator[Session]:
     """FastAPI dependency: one session per request, always closed."""
     session = get_sessionmaker()()

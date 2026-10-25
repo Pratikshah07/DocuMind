@@ -44,11 +44,40 @@ class Settings(BaseSettings):
     storage_path: Path = BACKEND_DIR / "storage"
     max_upload_size: int = 15 * 1024 * 1024  # bytes
 
+    # --- Processing (PDF parsing, preprocessing, OCR) ---
+    max_pages: int = 50  # documents with more pages are rejected (FAILED: too_many_pages)
+    max_image_pixels: int = 40_000_000  # decompression-bomb guard for images and rendered pages
+    # A PDF page whose text layer has fewer non-space characters than this is OCR'd instead.
+    pdf_min_text_chars: int = 25
+    ocr_render_dpi: int = 300
+    preview_max_width: int = 1200  # px; previews are PNGs for the UI
+    # Path to tesseract(.exe). Empty = PATH lookup, then the default Windows install location.
+    tesseract_cmd: str = ""
+    ocr_language: str = "eng"
+    ocr_timeout_seconds: int = 60  # per page
+    # Preprocessing steps (comma-separated, applied in order) before OCR.
+    # Rendered PDF pages are already clean; camera images need more help.
+    preprocess_pdf_steps: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["grayscale", "deskew"]
+    )
+    preprocess_image_steps: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["resize", "grayscale", "denoise", "contrast", "deskew", "threshold"]
+    )
+    # A QUEUED/RUNNING job older than this is treated as dead (e.g. server restarted mid-run).
+    processing_stale_after_seconds: int = 15 * 60
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("preprocess_pdf_steps", "preprocess_image_steps", mode="before")
+    @classmethod
+    def _split_steps(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [step.strip().lower() for step in value.split(",") if step.strip()]
         return value
 
     @field_validator("storage_path", mode="after")

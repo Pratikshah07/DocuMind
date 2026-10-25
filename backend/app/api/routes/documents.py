@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import DocumentServiceDep
+from app.api.deps import DocumentServiceDep, ProcessingServiceDep
 from app.core.errors import error_responses
 from app.schemas.document import (
     DocumentDetail,
@@ -20,25 +20,35 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.post(
     "/upload",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
     response_model=DocumentUploadResponse,
     summary="Upload a document",
     description=(
         "Upload one PDF, PNG or JPEG (multipart field `file`). The type is detected from the file's "
         "content; the extension and declared Content-Type must agree with it. The document is stored "
-        "with status `UPLOADED`. Processing is added in a later phase."
+        "with status `UPLOADED` and processing is queued; poll `GET /documents/{id}/status`."
     ),
     responses=error_responses(413, 415, 422),
 )
 def upload_document(
     service: DocumentServiceDep,
+    processing: ProcessingServiceDep,
     request: Request,
     response: Response,
     file: Annotated[UploadFile, File(description="PDF, PNG or JPEG file.")],
 ) -> DocumentUploadResponse:
     document = service.upload(filename=file.filename, content_type=file.content_type, stream=file.file)
+    job = processing.enqueue(document.id)
     response.headers["Location"] = str(request.url_for("get_document", document_id=document.id).path)
-    return DocumentUploadResponse.model_validate(document)
+    return DocumentUploadResponse(
+        id=document.id,
+        original_filename=document.original_filename,
+        mime_type=document.mime_type,
+        size_bytes=document.size_bytes,
+        status=document.status,
+        created_at=document.created_at,
+        job_id=job.id,
+    )
 
 
 @router.get(
@@ -90,6 +100,24 @@ def _content_disposition(filename: str) -> str:
         filename.encode("ascii", "replace").decode().replace("?", "_").replace('"', "_").replace("\\", "_")
     )
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+@router.get(
+    "/{document_id}/pages/{page_number}/preview",
+    response_class=StreamingResponse,
+    summary="Page preview image",
+    description="PNG rendering of one page (1-based), created during processing.",
+    responses={200: {"content": {"image/png": {}}}} | error_responses(404, 422),
+)
+def get_page_preview(
+    document_id: uuid.UUID, page_number: int, service: DocumentServiceDep
+) -> StreamingResponse:
+    chunks = service.open_preview(document_id, page_number)
+    return StreamingResponse(
+        chunks,
+        media_type="image/png",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+    )
 
 
 @router.get(

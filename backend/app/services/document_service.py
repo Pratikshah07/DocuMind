@@ -16,7 +16,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.errors import NotFoundError
-from app.models import Document, DocumentStatus
+from app.models import Document, DocumentPage, DocumentStatus
 from app.schemas.document import DocumentFilters, DocumentSort
 from app.services.storage import ORIGINALS, StorageBackend
 from app.services.upload_validation import validate_upload
@@ -79,14 +79,15 @@ class DocumentService:
         return document
 
     def delete(self, document_id: uuid.UUID) -> None:
-        document = self._get(document_id)
-        storage_key = document.storage_key
+        document = self._get(document_id, options=(selectinload(Document.pages),))
+        keys = [document.storage_key] + [p.preview_key for p in document.pages if p.preview_key]
         self.db.delete(document)
         self.db.commit()
-        try:
-            self.storage.delete(storage_key)
-        except Exception:
-            logger.exception("document_file_delete_failed", extra={"document_id": str(document_id)})
+        for key in keys:
+            try:
+                self.storage.delete(key)
+            except Exception:
+                logger.exception("document_file_delete_failed", extra={"document_id": str(document_id)})
         logger.info("document_deleted", extra={"document_id": str(document_id)})
 
     # --- Queries ---
@@ -116,6 +117,17 @@ class DocumentService:
             logger.error("document_file_missing", extra={"document_id": str(document_id)})
             raise NotFoundError("The original file for this document is missing.", code="file_not_found")
         return document, self.storage.iter_chunks(document.storage_key)
+
+    def open_preview(self, document_id: uuid.UUID, page_number: int) -> Iterator[bytes]:
+        self._get(document_id)
+        page = self.db.scalar(
+            select(DocumentPage).where(
+                DocumentPage.document_id == document_id, DocumentPage.page_number == page_number
+            )
+        )
+        if page is None or page.preview_key is None or not self.storage.exists(page.preview_key):
+            raise NotFoundError("No preview is available for this page.", code="preview_not_found")
+        return self.storage.iter_chunks(page.preview_key)
 
     # --- Helpers ---
 

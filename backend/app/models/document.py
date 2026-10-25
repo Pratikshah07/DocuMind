@@ -127,6 +127,10 @@ class DocumentPage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     document: Mapped[Document] = relationship(back_populates="pages")
 
+    @property
+    def has_preview(self) -> bool:
+        return self.preview_key is not None
+
 
 class ExtractedField(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "extracted_fields"

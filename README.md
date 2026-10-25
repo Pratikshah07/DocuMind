@@ -9,11 +9,14 @@ answers questions about your documents with retrieval-augmented generation.
 > [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)).
 >
 > **Working now:** the React frontend (running on local sample data), and a
-> FastAPI backend with PostgreSQL and Alembic. The backend has document upload
-> with content-based validation (file type detected from its bytes, plus a size
-> limit), file storage, and endpoints to list, view, download and delete documents.
+> FastAPI backend with PostgreSQL and Alembic. The backend validates uploads
+> by their content, stores them, and processes them in the background: it
+> reads PDF text layers (PyMuPDF), and preprocesses (OpenCV) and OCRs
+> (Tesseract) scanned pages and photos. It saves per-page text, OCR
+> confidence and preview images, with observable processing status and retries.
 >
-> **Coming next:** OCR, extraction, connecting the frontend, analytics, and RAG chat.
+> **Coming next:** field extraction and validation, connecting the frontend,
+> analytics, and RAG chat.
 
 ## Stack
 
@@ -22,7 +25,8 @@ answers questions about your documents with retrieval-augmented generation.
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, Recharts, wouter |
 | Backend | Python, FastAPI, Pydantic, SQLAlchemy 2, Alembic |
 | Database | PostgreSQL |
-| Planned | PyMuPDF, OpenCV, Tesseract OCR, Sentence Transformers, ChromaDB, Ollama |
+| Document processing | PyMuPDF, Pillow, OpenCV, Tesseract OCR (pytesseract) |
+| Planned | Sentence Transformers, ChromaDB, Ollama |
 
 ## Project structure
 
@@ -34,6 +38,9 @@ docker-compose.yml   local PostgreSQL
 ```
 
 ## Quick start
+
+Prerequisites: Python 3.12+, Node 20+, Docker, and Tesseract OCR
+(Windows: `winget install UB-Mannheim.TesseractOCR`; macOS: `brew install tesseract`).
 
 ```bash
 # Database
