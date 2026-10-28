@@ -1,17 +1,19 @@
-"""Document processing pipeline (Phase 3: text extraction).
+"""Document processing pipeline.
 
     QUEUED job ─► PROCESSING  open + fully decode the file, read PDF text layers
                 ─► OCR        (only if some page has no usable text) preprocess + OCR
-                ─► COMPLETED  pages + previews saved atomically
+                ─► EXTRACTING classify, extract fields and line items (deterministic rules)
+                ─► VALIDATING formats, required fields, arithmetic, confidence
+                ─► COMPLETED | NEEDS_REVIEW   everything saved in one transaction
        any error ─► FAILED    user-safe message on the document, code/detail on the job
-
-Phase 4 inserts EXTRACTING and VALIDATING before COMPLETED.
 
 Consistency rules:
 - A job runs only from QUEUED, so a duplicate submit is a no-op.
-- Page rows always reflect the *last successful* run: they are replaced in the
-  same transaction that marks the document COMPLETED, and cleared when a run
-  fails, so a FAILED document never shows stale pages.
+- Pages, extracted fields, line items and warnings always reflect the *last
+  successful* run: they are replaced (delete + insert) in the same transaction
+  that sets the final status, and cleared when a run fails, so a FAILED document
+  never shows stale data and a retry never duplicates rows. Reprocessing starts
+  fresh: earlier manual corrections are replaced (D35).
 - Preview files are written before that commit (keys are deterministic, so a
   retry overwrites them); previews no longer referenced are deleted after it.
 """
@@ -30,6 +32,13 @@ from sqlalchemy.orm import Session
 
 from app.db.base import utcnow
 from app.models import Document, DocumentPage, DocumentStatus, JobStatus, ProcessingJob, TextSource
+from app.services.extraction.types import PageText
+from app.services.extraction_service import (
+    ExtractionEngine,
+    ExtractionOutcome,
+    clear_extraction,
+    write_outcome,
+)
 from app.services.image_service import load_image
 from app.services.ocr import OCRError, OCRResult, OCRService, OCRUnavailableError
 from app.services.pdf_service import PdfDocument
@@ -99,11 +108,13 @@ class DocumentProcessor:
         storage: StorageBackend,
         ocr: OCRService,
         config: ProcessorConfig,
+        extraction: ExtractionEngine | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.storage = storage
         self.ocr = ocr
         self.config = config
+        self.extraction = extraction or ExtractionEngine()
         self._pdf_preprocessor = Preprocessor(config.pdf_steps)
         self._image_preprocessor = Preprocessor(config.image_steps)
 
@@ -126,7 +137,8 @@ class DocumentProcessor:
 
             try:
                 pages = self._extract(db, job, document)
-                self._complete(db, run, pages)
+                outcome = self._extract_fields(db, job, document, pages)
+                self._complete(db, run, pages, outcome)
             except ProcessingError as exc:
                 self._fail(db, run, exc.code, exc.user_message, exc.detail)
             except Exception as exc:
@@ -200,6 +212,15 @@ class DocumentProcessor:
         png, width, height = _to_preview(image, self.config.preview_max_width)
         return [PageResult(1, ocr.text.strip(), TextSource.OCR, ocr.confidence, png, width, height)]
 
+    def _extract_fields(
+        self, db: Session, job: ProcessingJob, document: Document, pages: list[PageResult]
+    ) -> ExtractionOutcome:
+        texts = [PageText(p.page_number, p.text, p.text_source, p.ocr_confidence) for p in pages]
+        self._set_stage(db, job, document, DocumentStatus.EXTRACTING)
+        outcome = self.extraction.extract(texts)
+        self._set_stage(db, job, document, DocumentStatus.VALIDATING)
+        return self.extraction.validate(outcome)
+
     def _ocr(self, image: np.ndarray, page_number: int) -> OCRResult:
         try:
             return self.ocr.extract_text(image, page_number=page_number)
@@ -218,7 +239,7 @@ class DocumentProcessor:
         rows = db.scalars(select(DocumentPage.preview_key).where(DocumentPage.document_id == document_id))
         return {key for key in rows if key}
 
-    def _complete(self, db: Session, run: _Run, pages: list[PageResult]) -> None:
+    def _complete(self, db: Session, run: _Run, pages: list[PageResult], outcome: ExtractionOutcome) -> None:
         document = db.get(Document, run.document_id, populate_existing=True)
         job = db.get(ProcessingJob, run.job_id, populate_existing=True)
         if document is None or job is None:  # deleted while we were working
@@ -245,13 +266,14 @@ class DocumentProcessor:
             )
             for page in pages
         )
+        write_outcome(db, document, outcome)  # replaces fields, line items and warnings
         now = utcnow()
         document.page_count = len(pages)
-        document.status = DocumentStatus.COMPLETED
+        document.status = outcome.status  # COMPLETED or NEEDS_REVIEW
         document.error_message = None
         document.processed_at = now
         job.status = JobStatus.SUCCEEDED
-        job.stage = DocumentStatus.COMPLETED
+        job.stage = outcome.status
         job.finished_at = now
         job.duration_ms = run.elapsed_ms()
         db.commit()
@@ -263,6 +285,12 @@ class DocumentProcessor:
                 "document_id": str(run.document_id),
                 "pages": len(pages),
                 "ocr_pages": sum(p.text_source == TextSource.OCR for p in pages),
+                # Counts and codes only; never extracted values.
+                "status": outcome.status.value,
+                "document_type": outcome.document_type.value,
+                "fields_found": sum(not f.is_missing for f in outcome.fields.values()),
+                "line_items": len(outcome.line_items),
+                "warnings": sorted({i.code for i in outcome.issues}),
                 "duration_ms": job.duration_ms,
             },
         )
@@ -276,6 +304,7 @@ class DocumentProcessor:
             job = db.get(ProcessingJob, run.job_id)
             if document is None or job is None:  # deleted while we were working
                 return
+            clear_extraction(db, document)  # no stale fields/line items/warnings on a FAILED document
             now = utcnow()
             document.status = DocumentStatus.FAILED
             document.error_message = user_message

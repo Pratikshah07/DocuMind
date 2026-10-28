@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import Settings, get_settings
 from app.db.session import get_db, get_session_factory
 from app.services.document_service import DocumentService
+from app.services.extraction_service import ExtractionEngine, ExtractionService, extraction_config
 from app.services.jobs import BackgroundTaskRunner, JobRunner
 from app.services.ocr import OCRService, TesseractOCR
 from app.services.pipeline import DocumentProcessor, ProcessorConfig
@@ -37,12 +38,23 @@ def get_ocr_service(settings: SettingsDep) -> OCRService:
 OCRDep = Annotated[OCRService, Depends(get_ocr_service)]
 
 
+def get_extraction_engine(settings: SettingsDep) -> ExtractionEngine:
+    return ExtractionEngine(extraction_config(settings))
+
+
+ExtractionEngineDep = Annotated[ExtractionEngine, Depends(get_extraction_engine)]
+
+
 def get_job_runner(background_tasks: BackgroundTasks) -> JobRunner:
     return BackgroundTaskRunner(background_tasks)
 
 
 def get_document_processor(
-    session_factory: SessionFactoryDep, storage: StorageDep, ocr: OCRDep, settings: SettingsDep
+    session_factory: SessionFactoryDep,
+    storage: StorageDep,
+    ocr: OCRDep,
+    extraction: ExtractionEngineDep,
+    settings: SettingsDep,
 ) -> DocumentProcessor:
     config = ProcessorConfig(
         max_pages=settings.max_pages,
@@ -53,7 +65,7 @@ def get_document_processor(
         pdf_steps=tuple(settings.preprocess_pdf_steps),
         image_steps=tuple(settings.preprocess_image_steps),
     )
-    return DocumentProcessor(session_factory, storage, ocr, config)
+    return DocumentProcessor(session_factory, storage, ocr, config, extraction)
 
 
 def get_document_service(db: DbDep, storage: StorageDep, settings: SettingsDep) -> DocumentService:
@@ -73,3 +85,10 @@ def get_processing_service(
 
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
 ProcessingServiceDep = Annotated[ProcessingService, Depends(get_processing_service)]
+
+
+def get_extraction_service(db: DbDep, settings: SettingsDep) -> ExtractionService:
+    return ExtractionService(db, extraction_config(settings))
+
+
+ExtractionServiceDep = Annotated[ExtractionService, Depends(get_extraction_service)]

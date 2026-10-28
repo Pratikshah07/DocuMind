@@ -13,8 +13,8 @@
 | 1 | Backend skeleton: FastAPI, config, DB, health | ✅ Done |
 | 2 | Upload, validation, storage, document model, initial migration | ✅ Done |
 | 3 | PDF/image processing, preprocessing, OCR | ✅ Done |
-| 4 | Classification, extraction, validation, confidence | ⏳ Next |
-| 5 | Frontend ↔ backend integration | — |
+| 4 | Classification, extraction, validation, confidence | ✅ Done |
+| 5 | Frontend ↔ backend integration | ⏳ Next |
 | 6 | Analytics | — |
 | 7 | Embeddings, vector store, retrieval | — |
 | 8 | LLM provider (Ollama), chat, source references | — |
@@ -384,6 +384,17 @@ upload → validate (ext + magic bytes + size) → store original → DB row (UP
 | D27 | Deskew uses the projection-profile method on an adaptive-threshold ink mask | Measured: min-area-rect gave 80–90° on short text blocks, and a global threshold gave 18° on shadowed photos; projection profile is within 0.1° on both |
 | D28 | Photo profile includes adaptive `threshold` and non-local-means `denoise` (searchWindow 11) at a 2000 px working width | Measured on noisy, unevenly lit photos: without threshold Tesseract returned 0 characters; median/Gaussian denoise read 0/5 vs NL-means 5/5; 12 MP NL-means 10.7 s → 1.8 s at 2000 px |
 | D29 | `document_pages.width/height` are the **preview** image dimensions; OCR word boxes are returned by `OCRService` but not persisted yet | Phase 4 consumes boxes in-process; when stored they will be normalized to 0–1 so they map onto previews |
+| D30 | Ambiguous numeric dates (03/04/2025) are read day-first by default (`DATE_ORDER=DMY`, configurable), confidence × 0.7 and an `ambiguous_date` warning | Approved 2026-10-28 |
+| D31 | NEEDS_REVIEW if any WARNING/ERROR, any required field missing/invalid, or any required field below `CONFIDENCE_REVIEW` (0.60) | Approved 2026-10-28 |
+| D32 | Every schema field gets an `extracted_fields` row; missing ones have `value` NULL | Approved; "missing" is explicit, and the UI/PATCH can fill it in |
+| D33 | Documents classified UNKNOWN are still extracted, get `document_type_unknown`, and end in NEEDS_REVIEW | Approved |
+| D34 | Phase 4 is fully deterministic. The plan's NLP/LLM layers are interface seams (`FieldExtractor`, `DocumentClassifier`) for Phase 8; spaCy not added (D6) | Brief: no paid API or LLM requirement; rule 17 |
+| D35 | Reprocessing (`POST /process`) re-extracts from scratch and replaces earlier user corrections; PATCH is the way to correct | Keeps retries idempotent and simple. Preserving edits across re-OCR would need per-line-item edit flags (a migration); revisit if the UI needs it |
+| D36 | Field-level read issues (ambiguous/conflicting/invalid) are kept until that field is edited; rule issues are recomputed on every validation. Consistency penalties are applied as *effective* confidence at read time, never stored | Re-validation is idempotent: repeated PATCHes don't compound penalties |
+| D37 | Number policies: `4,820` = thousands; lone `.`+3 digits (`1.234`) = thousands but flagged; space grouping only for a whole labelled value; separately labelled taxes (CGST+SGST) summed with an INFO note; discount stored as a magnitude (raw keeps the sign); `$` alone → USD at lower confidence | Each was driven by a failing case. E.g. a PDF text layer turned "8 212.50" (qty + price) into 8212.50 until space grouping was restricted |
+| D38 | The classification is stored as an `extracted_fields` row named `document_type` (value, confidence, method `rule`/`user`) | Keeps its confidence and provenance without a schema change |
+| D39 | `payment_method` stores only the method keyword ("VISA" → "Visa"), never card digits | Privacy: masked PANs stay out of the database |
+| D40 | No migration in Phase 4 | The 0001 schema already holds fields, provenance, line items and warnings; `alembic check` confirms no drift |
 
 ## Phase log
 
@@ -546,3 +557,107 @@ are marked `requires_tesseract` (skipped only if the binary is missing).
 - `winget install UB-Mannheim.TesseractOCR` (done on this machine: v5.4.0, `eng` + `osd`).
 - `pip install -r requirements-dev.txt` in `backend\` (adds the Phase 3 packages).
 - No migration needed, and the existing `.env` keeps working (new settings have defaults).
+
+### Phase 4 — classification, extraction, validation, confidence (done)
+
+**Scope approved before implementation (2026-10-28):** D30–D33. The plan's
+NLP/LLM layers are left as replaceable interfaces (D34). `GET/PATCH
+/extraction` and the sample dataset are included, as listed in the Phase 4
+row.
+
+**Implemented**
+- `services/extraction/`:
+  - `text.py`: normalization, OCR-tolerant label regexes, numeric repair.
+  - `parsers.py`: amounts in US/EU/Indian/Swiss/space formats, dates in 7
+    formats with DMY/MDY ambiguity, and currencies.
+  - `rules.py`: `FieldExtractor` interface plus `RuleBasedExtractor`
+    (labelled values, next-line values, label priority, conflicting
+    candidates, tax summing).
+  - `line_items.py`: header tables across pages, wrapped descriptions,
+    and an arithmetic-proof fallback when there is no header.
+  - `types.py`: the field schema and required fields per document type.
+- `classification_service.py`: `DocumentClassifier` interface plus a
+  weighted-keyword `RuleBasedClassifier`.
+- `validation_service.py`: field-level and rule-level issues, the review
+  decision, field status, overall confidence.
+- `confidence.py`: the documented heuristic and High/Medium/Low levels.
+- `extraction_service.py`:
+  - `ExtractionEngine`, which is pure: classify → extract → validate.
+  - `write_outcome` / `clear_extraction`: delete-then-insert, idempotent.
+  - `ExtractionService`: get, plus an atomic PATCH with re-validation.
+- **Pipeline:** new stages `EXTRACTING` and `VALIDATING`, ending
+  `COMPLETED | NEEDS_REVIEW`. A failed run clears fields, line items,
+  warnings and headline columns. Headline document columns receive only
+  *valid* values.
+- **API:** `GET` and `PATCH /api/documents/{id}/extraction` (409
+  `extraction_not_ready` while processing, 422 with per-field details on
+  invalid input).
+- **Config:** `DATE_ORDER`, `CONFIDENCE_HIGH`, `CONFIDENCE_REVIEW`,
+  `AMOUNT_TOLERANCE`.
+- **Sample dataset:** `backend/samples/` (13 synthetic documents plus a
+  manifest), produced by `scripts/generate_samples.py` from the same texts
+  as the tests.
+- **Logging:** the pipeline logs counts, codes and status. PATCH logs field
+  *names*. No values are logged anywhere (asserted in tests).
+
+**Tests** (new: `test_extraction_parsers.py`, `test_extraction_rules.py`,
+`test_validation.py`, `test_extraction_pipeline.py`,
+`test_extraction_api.py`). They cover:
+- representative invoices, a receipt, a GST invoice and an EU invoice
+- missing fields, malformed dates, ambiguous dates and amounts, conflicting
+  totals
+- incorrect totals, multiple and multi-page line items, OCR noise
+- unknown document types, reprocessing idempotency, failure clean-up
+- PATCH: fix, clear, atomic reject, idempotency
+- log hygiene, and a real-Tesseract scanned invoice end to end
+
+The Phase 2/3 tests were updated where their expectations predated
+extraction. Fake-OCR text now ends NEEDS_REVIEW, and the detail endpoint
+now has fields.
+
+**Verification** (2026-10-28)
+- `pytest`: **293 passed** on SQLite and **293 passed** on Docker
+  PostgreSQL (`documind_test` commits 1 → 1195 after a container restart).
+  No skips: Tesseract present.
+- Mutation checks, each caught by tests:
+  - the missing clear-before-write (idempotency)
+  - a failed run keeping its extraction
+  - an invalid date silently dropped
+  - an ambiguous date not flagged
+  - an edited field keeping its old warning
+  - PATCH applying a partial update
+  - the totals rule disabled
+  - a missing currency defaulted to USD
+- `ruff check .` and `ruff format --check .`: clean (77 files).
+- Alembic: `heads`/`current` = `0001`, `check` → "No new upgrade operations
+  detected." (D40).
+- **Live on Windows** (uvicorn + Docker Postgres + real Tesseract), all 13
+  samples uploaded through the API:
+  - the clean ones (standard, receipt, GST, multi-page) → COMPLETED
+  - each problem sample → NEEDS_REVIEW with exactly its expected warning
+  - scanned PDF via OCR → COMPLETED, all key values correct
+  - photo via OCR → COMPLETED, header values correct
+  - PATCH fixing the missing number → COMPLETED
+  - PATCH with an invalid date → 422 `validation_failed`
+  - no extracted values in the server log
+- Frontend: not modified.
+
+**Limitations / follow-ups**
+- **Two-column layouts.** "Bill To" and "Ship To" side by side become one
+  text line, so addresses and labels can mix. Vendor detection relies on
+  the letterhead being near the top.
+- **Line items from OCR'd photos** are often missed. The item row in the
+  noisy photo sample wasn't recovered: with no table header, only
+  arithmetically perfect rows are accepted.
+- **Label vocabulary is English** (plus GST/VAT terms). Other languages
+  need label additions or the Phase 8 LLM fallback.
+- **Fallback quirk:** an address line can be accepted as an item when its
+  numbers happen to multiply (documented in a test).
+- **Not extracted:** OCR word boxes (`extracted_fields.bbox` stays NULL),
+  and spending category (Phase 6).
+- **D35:** reprocessing discards manual corrections.
+- **Confidence is a heuristic** (D8); it hasn't been calibrated on real
+  documents.
+
+**Manual setup:** none beyond Phase 3. No migration. New settings have
+defaults, so the existing `.env` keeps working.

@@ -217,8 +217,11 @@ def test_get_document_detail(client: TestClient) -> None:
     # Processing ran in the background before the client call returned (TestClient semantics).
     assert body["status"] == "COMPLETED"
     assert [p["page_number"] for p in body["pages"]] == [1]
-    for collection in ("fields", "line_items", "warnings"):  # filled by extraction (Phase 4)
-        assert body[collection] == []
+    # Extraction ran too (Phase 4): the sample invoice is complete and consistent.
+    fields = {f["name"]: f for f in body["fields"]}
+    assert fields["invoice_number"]["value"] == "INV-2041" and fields["total"]["normalized_value"] == "54.00"
+    assert body["document_type"] == "INVOICE" and body["total"] == 54.0
+    assert len(body["line_items"]) == 1 and body["warnings"] == []
 
 
 def test_unknown_document_is_404_and_bad_id_is_422(client: TestClient) -> None:
@@ -263,12 +266,14 @@ def test_delete_removes_row_children_and_file(client: TestClient, db_session: Se
             DocumentPage(
                 document_id=document_id, page_number=2, text="Invoice"
             ),  # page 1 came from processing
-            ExtractedField(document_id=document_id, name="total", value="$10.00", confidence=0.9),
             LineItem(document_id=document_id, position=1, description="Widget", total=Decimal("10.00")),
             ValidationWarning(document_id=document_id, code="total_mismatch", message="Totals differ."),
         ]
     )
     db_session.commit()
+
+    for model in (DocumentPage, ExtractedField, LineItem, ValidationWarning):  # processing created rows
+        assert db_session.scalar(select(func.count()).select_from(model)) > 0
 
     response = client.delete(f"/api/documents/{document_id}")
 

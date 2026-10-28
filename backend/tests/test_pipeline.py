@@ -27,6 +27,9 @@ from tests.samples import (
 )
 
 PDF, PNG, JPEG = "application/pdf", "image/png", "image/jpeg"
+# Finished successfully. Fake-OCR text has no invoice fields, so extraction sends it to review;
+# these tests are about OCR/retries, extraction outcomes are covered in test_extraction_pipeline.py.
+PROCESSED = (DocumentStatus.COMPLETED, DocumentStatus.NEEDS_REVIEW)
 
 
 @pytest.fixture
@@ -126,7 +129,7 @@ def test_scanned_pdf_goes_through_ocr_stage(
 
     document, job, [page] = state(db_session, document_id, job_id)
     assert seen == [DocumentStatus.OCR]
-    assert document.status == DocumentStatus.COMPLETED
+    assert document.status in PROCESSED
     assert page.text_source == TextSource.OCR
     assert page.text == "FAKE OCR TEXT 123" and page.ocr_confidence == pytest.approx(0.91)
     [(page_number, shape)] = fake_ocr.calls
@@ -164,7 +167,7 @@ def test_image_uses_image_preprocessing_profile(make_doc, processor, fake_ocr, d
     processor.run(job_id)
 
     document, _, [page] = state(db_session, document_id, job_id)
-    assert document.status == DocumentStatus.COMPLETED and page.text_source == TextSource.OCR
+    assert document.status in PROCESSED and page.text_source == TextSource.OCR
     [(_, shape)] = fake_ocr.calls
     assert len(shape) == 2  # grayscale after resize/denoise/contrast/deskew
 
@@ -176,7 +179,7 @@ def test_blank_page_inside_document_does_not_fail_it(make_doc, processor, fake_o
     processor.run(job_id)
 
     document, _, pages = state(db_session, document_id, job_id)
-    assert document.status == DocumentStatus.COMPLETED
+    assert document.status in PROCESSED
     assert [p.text for p in pages] == ["Real content", ""]
 
 
@@ -295,7 +298,7 @@ def test_retry_after_failure_succeeds(make_doc, processor, fake_ocr, db_session)
     processor.run(second)
 
     document, _, pages = state(db_session, document_id, second)
-    assert document.status == DocumentStatus.COMPLETED and document.error_message is None
+    assert document.status in PROCESSED and document.error_message is None
     assert len(pages) == 1
 
 

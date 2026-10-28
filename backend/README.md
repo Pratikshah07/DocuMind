@@ -4,11 +4,13 @@ FastAPI service for DocuMind. It's a modular monolith: thin HTTP routes call
 services, and the services reach PostgreSQL, file storage, OCR and the LLM
 through interfaces.
 
-> **Status:** Phase 3. Uploads are validated, stored and processed in the
-> background: PDF text layers are read with PyMuPDF, and scanned pages and
-> images are preprocessed with OpenCV and OCR'd with Tesseract. Per-page
-> text, confidence and preview images are saved. Field extraction arrives in
-> Phase 4. See [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md).
+> **Status:** Phase 4. Uploads are validated, stored and processed in the
+> background. PDF text layers are read with PyMuPDF; scanned pages and images
+> are preprocessed with OpenCV and OCR'd with Tesseract. Then the backend
+> classifies the document, extracts invoice/receipt fields and line items
+> with deterministic rules, and validates them. Results carry confidence and
+> provenance and can be corrected through the API. See
+> [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md).
 
 ## Endpoints
 
@@ -21,14 +23,16 @@ through interfaces.
 | GET | `/api/documents/{id}/status` | Status, page count, user-safe error, latest job (stage, attempt, timing, `error_code`) |
 | POST | `/api/documents/{id}/process` | 202. Retry or reprocess. 409 `already_processing` while a job is active |
 | GET | `/api/documents/{id}/pages/{n}/preview` | PNG preview of page *n* (1-based) |
+| GET | `/api/documents/{id}/extraction` | Fields with status/confidence/provenance, line items, warnings. 409 until processed |
+| PATCH | `/api/documents/{id}/extraction` | Correct fields / document type / line items, then re-validate. 422 on invalid input (nothing applied) |
 | GET | `/api/documents/{id}/file` | Streams the original file |
 | DELETE | `/api/documents/{id}` | 204. Removes the rows (cascade), the stored file and the previews |
 
 ### Processing
 
 ```
-UPLOADED ─► PROCESSING ─► OCR (only if a page has no usable text) ─► COMPLETED
-                 └──────────────── any error ─────────────────────► FAILED
+UPLOADED ─► PROCESSING ─► OCR (if needed) ─► EXTRACTING ─► VALIDATING ─► COMPLETED | NEEDS_REVIEW
+                 └──────────────────────── any error ─────────────────────────► FAILED
 ```
 
 - **PDFs:** a page whose text layer has at least `PDF_MIN_TEXT_CHARS`
@@ -46,6 +50,68 @@ UPLOADED ─► PROCESSING ─► OCR (only if a page has no usable text) ─►
   `documents.error_message` holds a user-safe sentence. Technical detail
   (never document content) goes to `processing_jobs.error_detail` and is
   not exposed by the API.
+
+### Extraction and validation
+
+Deterministic layers (no LLM or paid API), in `app/services/extraction/`:
+
+1. **Normalize** the text: Unicode, dashes, column gaps. Labels are matched
+   OCR-tolerantly ("T0TAL", "lnvoice").
+2. **Classify** (`classification_service.py`): weighted keywords → INVOICE /
+   RECEIPT / UNKNOWN, with a heuristic confidence.
+3. **Labelled values** (`rules.py`): "Invoice No", "Due date", "Grand
+   Total", … with the value on the same line or the next.
+4. **Patterns**: the letterhead line as vendor, the first undated-label date,
+   payment keywords.
+5. **Line items** (`line_items.py`): rows under a table header, across
+   pages. Without a header, a row is accepted only if qty × unit = total.
+6. **Validation** (`validation_service.py`): records warnings and never
+   changes a value.
+
+**Rules for values**
+- Every field keeps the exact text it came from (`value`) next to its typed
+  form (`normalized_value`).
+- Nothing is invented: a value not in the document stays `missing` (no
+  default currency, no assumed tax of 0, no due date from "Net 30").
+- A labelled value that can't be parsed (`31/02/2025`) is kept as `invalid`.
+- Ambiguous values are read by rule and flagged:
+  - `03/04/2025` is read per `DATE_ORDER` (day-first by default).
+  - `1.234` is read as thousands.
+  - Several different totals: the last one is used and the alternatives are
+    listed.
+- Separately labelled taxes (CGST + SGST) are summed, with an `INFO` note.
+
+Every field has a **status** (`ok` / `uncertain` / `invalid` / `missing`) and a
+**confidence**. Confidence is a documented heuristic, not a probability (see
+`app/services/confidence.py`); the `effective_confidence` also reflects
+failed consistency checks.
+
+A document ends as **NEEDS_REVIEW** if any of these is true:
+- there is any warning or error,
+- a required field is missing or invalid,
+- a required field's confidence is below `CONFIDENCE_REVIEW`.
+
+The required fields are:
+- **Invoice:** vendor, number, date and total.
+- **Receipt or unknown document:** vendor, date and total.
+
+Warning codes:
+- **About how a value was read:** `ambiguous_date`, `ambiguous_amount`,
+  `multiple_candidates`, `invalid_format`, `tax_summed` (info).
+- **Rules:** `missing_required_field`, `document_type_unknown`,
+  `due_before_invoice_date`, `date_in_future`, `date_implausible`,
+  `negative_amount`, `totals_mismatch`, `line_items_mismatch`,
+  `line_item_arithmetic`.
+
+**Corrections (`PATCH`):**
+- Edited fields get method `user` and confidence 1.0, and are marked
+  `is_user_edited`.
+- Read-warnings on edited fields are dropped; read-warnings on untouched
+  fields are kept; every rule is re-checked.
+- The request is atomic: one invalid value rejects all of it, and nothing
+  changes.
+- **Reprocessing** (`POST /process`) runs a fresh extraction and replaces
+  earlier corrections.
 
 ### Upload rules
 
@@ -129,6 +195,10 @@ the environment or `backend/.env`. See [`.env.example`](.env.example).
 | `PREPROCESS_PDF_STEPS` | `grayscale,deskew` | Steps for rendered PDF pages |
 | `PREPROCESS_IMAGE_STEPS` | `resize,grayscale,denoise,contrast,deskew,threshold` | Steps for photos/scans |
 | `PROCESSING_STALE_AFTER_SECONDS` | `900` | An active job older than this no longer blocks a retry |
+| `DATE_ORDER` | `DMY` | Reading of ambiguous numeric dates (`DMY` or `MDY`); always flagged |
+| `CONFIDENCE_HIGH` | `0.85` | High/Medium boundary for display |
+| `CONFIDENCE_REVIEW` | `0.60` | Medium/Low boundary; a required field below it → NEEDS_REVIEW |
+| `AMOUNT_TOLERANCE` | `0.02` | Allowed rounding difference in arithmetic checks |
 
 ## Tests
 
@@ -177,8 +247,24 @@ app/
 ├── db/              declarative Base + mixins, engine/session
 ├── models/          ORM models (imported in models/__init__.py for Alembic)
 ├── schemas/         Pydantic request/response models
-├── services/        business logic: document_service, upload_validation, storage/
+├── services/        business logic: document, upload validation, storage/, pdf/image,
+│                    preprocessing, ocr/, pipeline, extraction/, classification,
+│                    validation, confidence
 └── utils/
 alembic/             migrations
 tests/               pytest suite
 ```
+
+## Sample dataset
+
+`samples/` holds 13 synthetic documents (fictional companies and numbers),
+including clean invoices, a receipt, GST and EU formats, a multi-page table,
+each failure case, a scanned PDF and a phone-style photo. `samples/manifest.json`
+says what each one demonstrates. Upload them via `/docs` to see every
+extraction outcome. Regenerate with:
+
+```bash
+python scripts/generate_samples.py
+```
+
+The same texts drive the automated tests (`tests/invoice_texts.py`).

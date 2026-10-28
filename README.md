@@ -9,14 +9,17 @@ answers questions about your documents with retrieval-augmented generation.
 > [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)).
 >
 > **Working now:** the React frontend (running on local sample data), and a
-> FastAPI backend with PostgreSQL and Alembic. The backend validates uploads
-> by their content, stores them, and processes them in the background: it
-> reads PDF text layers (PyMuPDF), and preprocesses (OpenCV) and OCRs
-> (Tesseract) scanned pages and photos. It saves per-page text, OCR
-> confidence and preview images, with observable processing status and retries.
+> FastAPI backend with PostgreSQL and Alembic. The backend:
+> - validates uploads by their content and stores them
+> - processes them in the background: reads PDF text layers (PyMuPDF), and
+>   preprocesses (OpenCV) and OCRs (Tesseract) scans and photos
+> - classifies each invoice or receipt, and extracts its fields and line items
+>   with deterministic rules
+> - validates dates, formats and totals, attaches transparent confidence
+>   scores, and flags documents that need review
+> - lets you correct extracted values through the API
 >
-> **Coming next:** field extraction and validation, connecting the frontend,
-> analytics, and RAG chat.
+> **Coming next:** connecting the frontend, analytics, and RAG chat.
 
 ## Stack
 
@@ -59,6 +62,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+Sample invoices and receipts to upload are in [`backend/samples/`](backend/samples/).
 
 ## Tests
 

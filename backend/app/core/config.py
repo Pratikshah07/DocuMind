@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     # A QUEUED/RUNNING job older than this is treated as dead (e.g. server restarted mid-run).
     processing_stale_after_seconds: int = 15 * 60
 
+    # --- Extraction & validation (Phase 4) ---
+    # How to read ambiguous numeric dates like 03/04/2025 (always flagged for review either way).
+    date_order: Literal["DMY", "MDY"] = "DMY"
+    # Confidence levels shown as High/Medium/Low. A required field below `confidence_review`
+    # (the Medium threshold) sends the document to NEEDS_REVIEW.
+    confidence_high: float = Field(default=0.85, ge=0, le=1)
+    confidence_review: float = Field(default=0.60, ge=0, le=1)
+    # Allowed rounding difference when checking subtotal + tax − discount = total, etc.
+    amount_tolerance: float = Field(default=0.02, ge=0)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

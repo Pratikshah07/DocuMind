@@ -1,0 +1,54 @@
+{
+  "01_invoice_standard.pdf": {
+    "purpose": "Complete, consistent invoice -> COMPLETED",
+    "bytes": 4218
+  },
+  "02_receipt_coffee.pdf": {
+    "purpose": "Receipt with line items -> COMPLETED",
+    "bytes": 2964
+  },
+  "03_invoice_gst_india.pdf": {
+    "purpose": "CGST + SGST summed into tax (INR)",
+    "bytes": 3115
+  },
+  "04_invoice_eu_format.pdf": {
+    "purpose": "1.249,50 amounts; dd.mm.yyyy date flagged",
+    "bytes": 2352
+  },
+  "05_invoice_multi_page.pdf": {
+    "purpose": "Table across 2 pages, discount",
+    "bytes": 4003
+  },
+  "06_missing_invoice_number.pdf": {
+    "purpose": "Required field missing",
+    "bytes": 1762
+  },
+  "07_totals_dont_add_up.pdf": {
+    "purpose": "Arithmetic warning",
+    "bytes": 2515
+  },
+  "08_ambiguous_date.pdf": {
+    "purpose": "03/04/2025 read day-first, flagged",
+    "bytes": 1897
+  },
+  "09_malformed_values.pdf": {
+    "purpose": "31/02/2025 kept as invalid; no total",
+    "bytes": 1907
+  },
+  "10_conflicting_totals.pdf": {
+    "purpose": "Two different totals flagged",
+    "bytes": 2084
+  },
+  "11_not_an_invoice.pdf": {
+    "purpose": "Classified UNKNOWN -> review",
+    "bytes": 1412
+  },
+  "12_scanned_invoice.pdf": {
+    "purpose": "Image-only PDF -> OCR path",
+    "bytes": 106482
+  },
+  "13_invoice_photo.jpg": {
+    "purpose": "Skewed, noisy, shadowed photo -> OCR",
+    "bytes": 277448
+  }
+}

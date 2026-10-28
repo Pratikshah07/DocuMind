@@ -162,3 +162,31 @@ def make_rotated_exif_jpeg() -> bytes:
 
 def truncate(data: bytes, keep: float = 0.5) -> bytes:
     return data[: int(len(data) * keep)]
+
+
+def make_text_pdf(*page_texts: str) -> bytes:
+    """A real text-layer PDF from multi-line strings (one string per page). Font size 11 so
+    long table rows fit the page width."""
+    doc = pymupdf.open()
+    for text in page_texts:
+        page = doc.new_page(width=612, height=792)
+        y = 60
+        for line in text.splitlines():
+            page.insert_text((50, y), line, fontsize=11, fontname="helv")
+            y += 17
+    data = doc.tobytes(deflate=True, garbage=3)
+    doc.close()
+    return data
+
+
+def make_scanned_text_pdf(text: str, *, dpi: int = 200) -> bytes:
+    """Like make_text_pdf, but the page is an image only (no text layer): the OCR path."""
+    source = pymupdf.open(stream=make_text_pdf(text), filetype="pdf")
+    png = source[0].get_pixmap(dpi=dpi, colorspace=pymupdf.csRGB, alpha=False).tobytes("png")
+    source.close()
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_image(page.rect, stream=png)
+    data = doc.tobytes(deflate=True, garbage=3)
+    doc.close()
+    return data
