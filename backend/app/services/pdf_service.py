@@ -58,6 +58,18 @@ class PdfDocument:
         except Exception as exc:
             raise corrupt_pdf(f"page {index + 1}: {type(exc).__name__}") from exc
 
+    def words(self, index: int) -> list[tuple[str, float, float, float, float]]:
+        """Text-layer words of a 0-based page with boxes normalized to 0–1: (text, x0, y0, x1, y1)."""
+        try:
+            page = self._doc[index]
+            width, height = page.rect.width or 1, page.rect.height or 1
+            return [
+                (w[4], w[0] / width, w[1] / height, w[2] / width, w[3] / height)
+                for w in page.get_text("words", sort=True)
+            ]
+        except Exception as exc:
+            raise corrupt_pdf(f"words page {index + 1}: {type(exc).__name__}") from exc
+
     def render(self, index: int, *, dpi: int, max_pixels: int) -> Image.Image:
         """Render a 0-based page to an RGB image, lowering the DPI if the result would exceed max_pixels."""
         try:

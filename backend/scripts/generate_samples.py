@@ -50,6 +50,22 @@ SAMPLES = {
         "Image-only PDF -> OCR path",
     ),
     "13_invoice_photo.jpg": (lambda: make_photo_jpeg(), "Skewed, noisy, shadowed photo -> OCR"),
+    "14_invoice_tax_column.pdf": (
+        lambda: make_text_pdf(T.TAX_COLUMN_INVOICE),
+        "VAT column, wrapped description with numbers, PO number, VAT ID",
+    ),
+    "15_invoice_two_column.pdf": (
+        lambda: make_text_pdf(T.TWO_COLUMN_INVOICE),
+        "Vendor and Bill To side by side (interleaved columns)",
+    ),
+    "16_receipt_compact.pdf": (
+        lambda: make_text_pdf(T.COMPACT_RECEIPT),
+        "Till receipt: '2 x item @ price', weighed item, no table header",
+    ),
+    "17_low_res_scan.pdf": (
+        lambda: make_scanned_text_pdf(T.TAX_COLUMN_INVOICE, dpi=100),
+        "Low-resolution (100 dpi) scan of the tax-column invoice -> OCR",
+    ),
 }
 
 

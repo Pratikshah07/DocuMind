@@ -36,10 +36,12 @@ from sqlalchemy.orm import Session
 from app.db.base import utcnow
 from app.models import Document, DocumentPage, DocumentStatus, JobStatus, ProcessingJob, TextSource
 from app.services.corrections import active_corrections, apply_corrections
+from app.services.extraction.layout import locate_fields
 from app.services.extraction.types import PageText
 from app.services.extraction_service import (
     ExtractionEngine,
     ExtractionOutcome,
+    check_duplicate_invoice,
     clear_extraction,
     write_outcome,
 )
@@ -77,6 +79,8 @@ class PageResult:
     preview_png: bytes
     width: int  # of the preview image, px
     height: int
+    # Words with boxes normalized to 0–1 of the page; empty when positions are unreliable.
+    words: list[tuple[str, float, float, float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -188,10 +192,22 @@ class DocumentProcessor:
 
     def _extract(self, db: Session, job: ProcessingJob, document: Document) -> list[PageResult]:
         content = self._read_original(document)
-        if document.mime_type == PDF_MIME:
-            pages = self._extract_pdf(db, job, document, content)
-        elif document.mime_type in ("image/png", "image/jpeg"):
-            pages = self._extract_image(db, job, document, content)
+        return self.read_pages(
+            content, document.mime_type, on_ocr=lambda: self._set_stage(db, job, document, DocumentStatus.OCR)
+        )
+
+    def read_pages(
+        self, content: bytes, mime_type: str, *, on_ocr: Callable[[], None] | None = None
+    ) -> list[PageResult]:
+        """File bytes → page texts and previews (no database). ``on_ocr`` fires before OCR starts.
+
+        Also used by the extraction evaluation (scripts/evaluate_extraction.py), so it measures
+        exactly what production reads.
+        """
+        if mime_type == PDF_MIME:
+            pages = self._extract_pdf(content, on_ocr)
+        elif mime_type in ("image/png", "image/jpeg"):
+            pages = self._extract_image(content, on_ocr)
         else:  # validated at upload; guards against rows created some other way
             raise ProcessingError("unsupported_file_type", "This file type cannot be processed.")
 
@@ -199,38 +215,52 @@ class DocumentProcessor:
             raise ProcessingError("no_text_found", "No readable text was found in this document.")
         return pages
 
-    def _extract_pdf(
-        self, db: Session, job: ProcessingJob, document: Document, content: bytes
-    ) -> list[PageResult]:
+    def _extract_pdf(self, content: bytes, on_ocr: Callable[[], None] | None) -> list[PageResult]:
         cfg = self.config
         with PdfDocument(content, max_pages=cfg.max_pages) as pdf:
             texts = [pdf.text(i) for i in range(pdf.page_count)]
             needs_ocr = [_usable_chars(t) < cfg.pdf_min_text_chars for t in texts]
-            if any(needs_ocr):
-                self._set_stage(db, job, document, DocumentStatus.OCR)
+            if any(needs_ocr) and on_ocr:
+                on_ocr()
 
             results = []
             for index, text in enumerate(texts):
                 page_number = index + 1
                 if needs_ocr[index]:
                     image = pdf.render(index, dpi=cfg.ocr_render_dpi, max_pixels=cfg.max_image_pixels)
-                    ocr = self._ocr(self._pdf_preprocessor.run(image), page_number)
+                    ocr, words = self._ocr_page(self._pdf_preprocessor, image, page_number)
                     text, source, confidence = ocr.text, TextSource.OCR, ocr.confidence
                 else:
                     image = pdf.render(index, dpi=_PREVIEW_MAX_DPI, max_pixels=cfg.max_image_pixels)
-                    source, confidence = TextSource.EMBEDDED, None
+                    source, confidence, words = TextSource.EMBEDDED, None, pdf.words(index)
                 png, width, height = _to_preview(image, cfg.preview_max_width)
-                results.append(PageResult(page_number, text.strip(), source, confidence, png, width, height))
+                results.append(
+                    PageResult(page_number, text.strip(), source, confidence, png, width, height, words)
+                )
             return results
 
-    def _extract_image(
-        self, db: Session, job: ProcessingJob, document: Document, content: bytes
-    ) -> list[PageResult]:
+    def _extract_image(self, content: bytes, on_ocr: Callable[[], None] | None) -> list[PageResult]:
         image = load_image(content, max_pixels=self.config.max_image_pixels)
-        self._set_stage(db, job, document, DocumentStatus.OCR)
-        ocr = self._ocr(self._image_preprocessor.run(image), 1)
+        if on_ocr:
+            on_ocr()
+        ocr, words = self._ocr_page(self._image_preprocessor, image, 1)
         png, width, height = _to_preview(image, self.config.preview_max_width)
-        return [PageResult(1, ocr.text.strip(), TextSource.OCR, ocr.confidence, png, width, height)]
+        return [PageResult(1, ocr.text.strip(), TextSource.OCR, ocr.confidence, png, width, height, words)]
+
+    def _ocr_page(
+        self, preprocessor: Preprocessor, image: Image.Image, page_number: int
+    ) -> tuple[OCRResult, list[tuple[str, float, float, float, float]]]:
+        array, rotated = preprocessor.run_tracked(image)
+        ocr = self._ocr(array, page_number)
+        if rotated:  # word positions are in the rotated frame: not usable on the original page
+            return ocr, []
+        height, width = array.shape[:2]
+        words = [
+            (w.text, w.bbox[0] / width, w.bbox[1] / height, (w.bbox[0] + w.bbox[2]) / width,
+             (w.bbox[1] + w.bbox[3]) / height)
+            for w in ocr.words
+        ]  # fmt: skip
+        return ocr, words
 
     def _extract_fields(
         self, db: Session, job: ProcessingJob, document: Document, pages: list[PageResult]
@@ -244,6 +274,7 @@ class DocumentProcessor:
         outcome.line_items_user_edited = "line_items" in applied
         self._set_stage(db, job, document, DocumentStatus.VALIDATING)
         outcome = self.extraction.validate(outcome)
+        locate_fields(outcome.fields, {p.page_number: p.words for p in pages})
         if applied:
             logger.info(
                 "corrections_reapplied", extra={"document_id": str(document.id), "fields": sorted(applied)}
@@ -274,6 +305,7 @@ class DocumentProcessor:
         if document is None or job is None:  # deleted while we were working
             logger.info("processing_abandoned_document_deleted", extra={"document_id": str(run.document_id)})
             return
+        outcome = check_duplicate_invoice(db, document, outcome, self.extraction.config.validation)
         old_keys = self._existing_preview_keys(db, run.document_id)
         new_keys = set()
         for page in pages:

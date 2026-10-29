@@ -17,7 +17,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
@@ -74,8 +74,13 @@ class ExtractionOutcome:
 
 
 def finalize(outcome: ExtractionOutcome, config: ValidationConfig) -> ExtractionOutcome:
-    """Fill the derived parts (effective confidence, overall score, review decision)."""
+    """Fill the derived parts (effective confidence, low-confidence warnings, overall score, review
+    decision). Idempotent: low-confidence warnings are recomputed, never accumulated."""
+    outcome.issues = [i for i in outcome.issues if i.code != validation.CODE_LOW_CONFIDENCE]
     outcome.effective = validation.effective_confidences(outcome.fields, outcome.issues)
+    outcome.issues += validation.low_confidence_issues(
+        outcome.document_type, outcome.fields, outcome.effective, outcome.issues, config
+    )
     outcome.overall_confidence = validation.overall_confidence(
         outcome.document_type, outcome.effective, outcome.fields
     )
@@ -127,6 +132,37 @@ class ExtractionEngine:
             outcome.document_type, outcome.fields, outcome.line_items, self.config.validation
         )
         return finalize(outcome, self.config.validation)
+
+
+def check_duplicate_invoice(
+    db: Session, document: Document, outcome: ExtractionOutcome, config: ValidationConfig
+) -> ExtractionOutcome:
+    """Cross-document rule: the same invoice number (and vendor, when known) on another processed
+    document in this workspace. Only this workspace is searched."""
+    outcome.issues = [i for i in outcome.issues if i.code != validation.CODE_DUPLICATE_INVOICE]
+    number = outcome.fields["invoice_number"].normalized
+    if isinstance(number, str) and number.strip():
+        query = select(Document.original_filename).where(
+            Document.workspace_id == document.workspace_id,
+            Document.id != document.id,
+            Document.status.in_(EDITABLE_STATUSES),
+            func.lower(Document.invoice_number) == number.strip().lower()[:100],
+        )
+        vendor = outcome.fields["vendor_name"].normalized
+        has_vendor = isinstance(vendor, str) and bool(vendor.strip())
+        if has_vendor:
+            query = query.where(func.lower(Document.vendor_name) == vendor.strip().lower()[:255])
+        other = db.scalar(query.limit(1))
+        if other is not None:
+            outcome.issues.append(
+                validation.Issue(
+                    "invoice_number",
+                    validation.CODE_DUPLICATE_INVOICE,
+                    f"Another document in this workspace ({other}) has the same invoice number"
+                    + (" and vendor." if has_vendor else "."),
+                )
+            )
+    return finalize(outcome, config)
 
 
 # --- Persistence -------------------------------------------------------------
@@ -197,6 +233,7 @@ def write_outcome(db: Session, document: Document, outcome: ExtractionOutcome) -
                 confidence=None if f.is_missing else f.confidence,
                 method=f.method,
                 page_number=f.page_number,
+                bbox=f.bbox,
                 is_user_edited=f.user_edited,
             )
         )
@@ -261,6 +298,7 @@ def load_outcome(document: Document, config: ValidationConfig) -> ExtractionOutc
                 method=row.method,
                 page_number=row.page_number,
                 user_edited=row.is_user_edited,
+                bbox=row.bbox,
             )
             if row
             else FieldResult(name)
@@ -374,7 +412,7 @@ class ExtractionService:
         outcome.issues = kept + validation.rule_issues(
             outcome.document_type, outcome.fields, outcome.line_items, self.config.validation
         )
-        finalize(outcome, self.config.validation)
+        check_duplicate_invoice(self.db, document, outcome, self.config.validation)
 
         write_outcome(self.db, document, outcome)
         # Every submitted value is recorded, including confirmations (old == new): a confirmed value

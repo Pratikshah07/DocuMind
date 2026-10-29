@@ -57,6 +57,9 @@ export const FIELD_LABEL: Record<string, string> = {
   discount: 'Discount',
   total: 'Total',
   payment_method: 'Payment method',
+  buyer_name: 'Buyer',
+  po_number: 'PO number',
+  vendor_tax_id: 'Vendor tax / VAT ID',
   billing_address: 'Billing address',
   shipping_address: 'Shipping address',
 };

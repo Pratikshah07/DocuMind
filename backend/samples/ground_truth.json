@@ -1,0 +1,118 @@
+{
+  "_about": "Hand-labelled ground truth for the synthetic samples, written from the document text (tests/invoice_texts.py), never from extractor output. null = the document has no such value (extracting one is a false positive). \"__skip__\" = ambiguous by design, not scored. Addresses are free text and not scored.",
+  "01_invoice_standard.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Northstar Studio LLC", "invoice_number": "NS-1048", "invoice_date": "2025-03-18", "due_date": "2025-04-17", "currency": "USD", "subtotal": "4500.00", "tax": "320.00", "discount": null, "total": "4820.00", "payment_method": "Visa", "buyer_name": "Meridian Cloud Inc.", "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Brand identity refinement", "quantity": "1", "unit_price": "2800.00", "total": "2800.00"},
+      {"description": "Web design consultation", "quantity": "8", "unit_price": "212.50", "total": "1700.00"}
+    ]
+  },
+  "02_receipt_coffee.pdf": {
+    "document_type": "RECEIPT",
+    "fields": {"vendor_name": "FIELDNOTES COFFEE", "invoice_number": "R-30811", "invoice_date": "2025-03-17", "due_date": null, "currency": "__skip__", "subtotal": "16.50", "tax": "1.36", "discount": null, "total": "17.86", "payment_method": "Visa", "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Flat white", "quantity": "2", "unit_price": "4.50", "total": "9.00"},
+      {"description": "Croissant", "quantity": "2", "unit_price": "3.75", "total": "7.50"}
+    ]
+  },
+  "03_invoice_gst_india.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Saffron Supplies Pvt Ltd", "invoice_number": "SS/24-25/0193", "invoice_date": "2025-02-05", "due_date": null, "currency": "INR", "subtotal": "3400.00", "tax": "612.00", "discount": null, "total": "4012.00", "payment_method": "UPI", "buyer_name": "Kaveri Traders", "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "A4 paper ream", "quantity": "10", "unit_price": "250.00", "total": "2500.00"},
+      {"description": "Stapler heavy duty", "quantity": "2", "unit_price": "450.00", "total": "900.00"}
+    ]
+  },
+  "04_invoice_eu_format.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Brücke Logistik GmbH", "invoice_number": "2025-0412", "invoice_date": "2025-03-12", "due_date": null, "currency": "EUR", "subtotal": "1249.50", "tax": "237.41", "discount": null, "total": "1486.91", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Freight Hamburg-Berlin", "quantity": "1", "unit_price": "1249.50", "total": "1249.50"}
+    ]
+  },
+  "05_invoice_multi_page.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Granite Peak Hardware", "invoice_number": "GPH-5521", "invoice_date": "2025-01-15", "due_date": "2025-02-14", "currency": null, "subtotal": "263.50", "tax": "20.00", "discount": "13.50", "total": "270.00", "payment_method": "Bank transfer", "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Hex bolts M8 (box of 100)", "quantity": "3", "unit_price": "14.00", "total": "42.00"},
+      {"description": "Wood screws assorted", "quantity": "5", "unit_price": "6.50", "total": "32.50"},
+      {"description": "Cordless drill 18V", "quantity": "1", "unit_price": "129.00", "total": "129.00"},
+      {"description": "Safety goggles", "quantity": "4", "unit_price": "8.25", "total": "33.00"},
+      {"description": "Work gloves", "quantity": "6", "unit_price": "4.50", "total": "27.00"}
+    ]
+  },
+  "06_missing_invoice_number.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Atlas Office Supplies", "invoice_number": null, "invoice_date": "2025-02-26", "due_date": null, "currency": null, "subtotal": null, "tax": null, "discount": null, "total": "302.00", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Workspace essentials bundle", "quantity": "1", "unit_price": "302.00", "total": "302.00"}
+    ]
+  },
+  "07_totals_dont_add_up.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Harbor Freight Logistics", "invoice_number": "HFL-7712", "invoice_date": "2025-03-08", "due_date": null, "currency": null, "subtotal": "2035.00", "tax": "160.00", "discount": null, "total": "2295.00", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Domestic freight shipment", "quantity": "1", "unit_price": "1975.00", "total": "1975.00"},
+      {"description": "Fuel surcharge", "quantity": "1", "unit_price": "60.00", "total": "60.00"}
+    ]
+  },
+  "08_ambiguous_date.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Paper & Pine Supply", "invoice_number": "30944", "invoice_date": "__skip__", "due_date": null, "currency": null, "subtotal": "630.00", "tax": "54.20", "discount": null, "total": "684.20", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": []
+  },
+  "09_malformed_values.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Tandem Research", "invoice_number": "TR-2503", "invoice_date": null, "due_date": null, "currency": null, "subtotal": "3500.00", "tax": "175.00", "discount": null, "total": null, "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": []
+  },
+  "10_conflicting_totals.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Maple Street Creative", "invoice_number": "MSC-7803", "invoice_date": "2025-02-24", "due_date": null, "currency": null, "subtotal": "1000.00", "tax": "80.00", "discount": null, "total": "__skip__", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": []
+  },
+  "11_not_an_invoice.pdf": {
+    "document_type": "UNKNOWN",
+    "fields": {"vendor_name": null, "invoice_number": null, "invoice_date": null, "due_date": null, "currency": null, "subtotal": null, "tax": null, "discount": null, "total": null, "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": []
+  },
+  "12_scanned_invoice.pdf": {
+    "same_as": "01_invoice_standard.pdf"
+  },
+  "13_invoice_photo.jpg": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "NORTHWIND TRADING CO", "invoice_number": "INV-2041", "invoice_date": "2025-03-18", "due_date": null, "currency": null, "subtotal": "50.00", "tax": "4.00", "discount": null, "total": "54.00", "payment_method": null, "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Widget assembly kit", "quantity": "4", "unit_price": "12.50", "total": "50.00"}
+    ]
+  },
+  "14_invoice_tax_column.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Bluewater Analytics Ltd", "invoice_number": "BWA-2291", "invoice_date": "2025-04-02", "due_date": "2025-05-02", "currency": "GBP", "subtotal": "1900.00", "tax": "380.00", "discount": null, "total": "2280.00", "payment_method": "Bank transfer", "buyer_name": "Corvid Health Partners", "po_number": "PO-55120", "vendor_tax_id": "GB 284 7731 06"},
+    "line_items": [
+      {"description": "Quarterly data platform licence (April to June 2025, 25 seats)", "quantity": "1", "unit_price": "1200.00", "total": "1200.00"},
+      {"description": "Onboarding workshop", "quantity": "2", "unit_price": "350.00", "total": "700.00"}
+    ]
+  },
+  "15_invoice_two_column.pdf": {
+    "document_type": "INVOICE",
+    "fields": {"vendor_name": "Quillon Print Works", "invoice_number": "QPW-0087", "invoice_date": "2025-05-14", "due_date": null, "currency": "GBP", "subtotal": "230.00", "tax": "46.00", "discount": null, "total": "276.00", "payment_method": null, "buyer_name": "Ostara Bakery", "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Menu cards A5", "quantity": "500", "unit_price": "0.36", "total": "180.00"},
+      {"description": "Window decals", "quantity": "4", "unit_price": "12.50", "total": "50.00"}
+    ]
+  },
+  "16_receipt_compact.pdf": {
+    "document_type": "RECEIPT",
+    "fields": {"vendor_name": "GREEN LEAF MARKET", "invoice_number": null, "invoice_date": "2025-05-12", "due_date": null, "currency": "GBP", "subtotal": null, "tax": "0.78", "discount": null, "total": "9.36", "payment_method": "Card", "buyer_name": null, "po_number": null, "vendor_tax_id": null},
+    "line_items": [
+      {"description": "Oat milk 1L", "quantity": "2", "unit_price": "2.10", "total": "4.20"},
+      {"description": "Bananas", "quantity": "1.24", "unit_price": "1.10", "total": "1.36"},
+      {"description": "Sourdough loaf", "quantity": null, "unit_price": null, "total": "3.80"}
+    ]
+  },
+  "17_low_res_scan.pdf": {
+    "same_as": "14_invoice_tax_column.pdf"
+  }
+}

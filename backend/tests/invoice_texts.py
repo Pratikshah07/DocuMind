@@ -154,6 +154,52 @@ Total  270.00
 Payment Method: Bank transfer""",
 )
 
+# --- Harder layouts (Part 7 fixtures; ground truth in backend/samples/ground_truth.json) ---
+
+# Separate VAT column, a wrapped description line containing numbers, PO number, VAT ID, buyer block.
+TAX_COLUMN_INVOICE = """Bluewater Analytics Ltd
+VAT No: GB 284 7731 06
+INVOICE
+Invoice Number: BWA-2291
+Invoice Date: 2025-04-02
+Due Date: 2025-05-02
+PO Number: PO-55120
+Bill To:
+Corvid Health Partners
+41 Elm Row, Leeds LS1 4AB
+Description  Qty  Unit Price  VAT  Net Amount
+Quarterly data platform licence  1  1,200.00  240.00  1,200.00
+(April to June 2025, 25 seats)
+Onboarding workshop  2  350.00  140.00  700.00
+Subtotal  1,900.00
+VAT 20%  380.00
+Total  GBP 2,280.00
+Payment Method: Bank transfer"""
+
+# Vendor and buyer side by side: the text layer interleaves the two columns on each line.
+TWO_COLUMN_INVOICE = """Quillon Print Works                          Bill To: Ostara Bakery
+22 Foundry Road                              9 Mill Lane
+Bristol BS1 6QA                              Bath BA1 2HN
+INVOICE
+Invoice No: QPW-0087          Invoice Date: 2025-05-14
+Description  Qty  Unit Price  Amount
+Menu cards A5  500  0.36  180.00
+Window decals  4  12.50  50.00
+Subtotal  230.00
+VAT  46.00
+Total  GBP 276.00"""
+
+# Compact till receipt: "qty x item @ price" lines, a weighed item, single-price lines, no table header.
+COMPACT_RECEIPT = """GREEN LEAF MARKET
+Store 0142  Till 3
+12/05/2025 18:21
+2 x Oat milk 1L @ 2.10  4.20
+Bananas 1.24 kg @ 1.10/kg  1.36
+Sourdough loaf  3.80
+TOTAL  GBP 9.36
+CARD  9.36
+VAT included  0.78"""
+
 CASES = {
     "standard_invoice": (
         STANDARD_INVOICE,

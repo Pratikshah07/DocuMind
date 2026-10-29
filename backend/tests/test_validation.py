@@ -200,3 +200,20 @@ def test_overall_confidence_counts_missing_required_as_zero() -> None:
 )
 def test_confidence_levels(score, level) -> None:
     assert confidence.level(score, high=0.85, medium=0.60) == level
+
+
+def test_low_confidence_required_field_gets_an_explaining_warning() -> None:
+    from app.services.extraction.types import PageText
+    from app.services.extraction_service import ExtractionEngine
+
+    engine = ExtractionEngine()
+    text = "Northstar Studio LLC\nInvoice Number: NS-1048\nInvoice Date: 2025-03-18\nTotal  USD 4,820.00"
+    outcome = engine.validate(engine.extract([PageText(1, text, ocr_confidence=0.2)]))
+    low = [i for i in outcome.issues if i.code == "low_confidence"]
+    assert [i.field for i in low] == ["vendor_name"]  # positional guess on a poor scan
+    assert outcome.needs_review
+    # Recomputed, not accumulated, when validation runs again.
+    from app.services.extraction_service import finalize
+
+    finalize(outcome, engine.config.validation)
+    assert len([i for i in outcome.issues if i.code == "low_confidence"]) == 1

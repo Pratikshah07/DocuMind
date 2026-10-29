@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -9,7 +10,7 @@ from app.models import Document, DocumentStatus, DocumentType, WarningSeverity
 from app.services import confidence
 from app.services.extraction.types import FIELD_KINDS, FIELD_NAMES, REQUIRED_FIELDS, FieldKind
 from app.services.extraction_service import ExtractionOutcome, ExtractionUpdate, LineItemInput
-from app.services.validation_service import ValidationConfig, field_status
+from app.services.validation_service import SUGGESTED_ACTIONS, ValidationConfig, field_status
 
 Amount = Annotated[Decimal, PlainSerializer(float, return_type=float, when_used="json")]
 FieldStatus = Literal["ok", "uncertain", "invalid", "missing"]
@@ -35,6 +36,10 @@ class ExtractedFieldView(BaseModel):
         description="`regex` (labelled value) · `pattern` (layout heuristic) · `user`."
     )
     page_number: int | None
+    bbox: list[float] | None = Field(
+        description="Location on `page_number` as [x0, y0, x1, y1] fractions of the page; null when the "
+        "value could not be located unambiguously."
+    )
     required: bool
     is_user_edited: bool
 
@@ -50,10 +55,14 @@ class LineItemView(BaseModel):
 
 
 class WarningView(BaseModel):
-    field: str | None
-    code: str
+    field: str | None = Field(description="Field name, `line_items[n]` (1-based row), or null.")
+    code: str = Field(description="Stable rule code, e.g. `totals_mismatch`.")
     message: str
     severity: WarningSeverity
+    page_number: int | None = Field(description="Page the affected value was read from, when known.")
+    suggested_action: str | None = Field(
+        description="What a reviewer should check. Values are never changed automatically."
+    )
 
 
 class ExtractionEditView(BaseModel):
@@ -99,6 +108,16 @@ def _json_value(kind: FieldKind, value: Any) -> Any:
     return value
 
 
+def _warning_page(outcome: ExtractionOutcome, field: str | None) -> int | None:
+    if field is None:
+        return None
+    if row := re.fullmatch(r"line_items\[(\d+)\]", field):
+        index = int(row.group(1)) - 1
+        return outcome.line_items[index].page_number if 0 <= index < len(outcome.line_items) else None
+    found = outcome.fields.get(field)
+    return found.page_number if found else None
+
+
 def build_response(
     document: Document, outcome: ExtractionOutcome, config: ValidationConfig
 ) -> DocumentExtractionResponse:
@@ -120,6 +139,7 @@ def build_response(
                 ),
                 method=f.method,
                 page_number=f.page_number,
+                bbox=f.bbox,
                 required=name in required,
                 is_user_edited=f.user_edited,
             )
@@ -147,7 +167,14 @@ def build_response(
             for i, item in enumerate(outcome.line_items, start=1)
         ],
         warnings=[
-            WarningView(field=w.field, code=w.code, message=w.message, severity=w.severity)
+            WarningView(
+                field=w.field,
+                code=w.code,
+                message=w.message,
+                severity=w.severity,
+                page_number=_warning_page(outcome, w.field),
+                suggested_action=SUGGESTED_ACTIONS.get(w.code),
+            )
             for w in outcome.issues
         ],
     )

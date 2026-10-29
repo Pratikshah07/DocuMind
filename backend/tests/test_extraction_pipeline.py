@@ -177,7 +177,7 @@ def test_reprocessing_is_idempotent(processor, queue, db_session) -> None:
     assert (
         counts(db_session, document_id)
         == before
-        == {"extracted_fields": 13, "line_items": 5, "validation_warnings": 0}
+        == {"extracted_fields": 16, "line_items": 5, "validation_warnings": 0}
     )
     document = reload(db_session, document_id)
     assert {f.name: (f.value, f.normalized_value, f.confidence) for f in document.fields} == snapshot
@@ -215,7 +215,7 @@ def test_extraction_logs_contain_no_values(processor, queue, caplog) -> None:
         processor.run(job_id)
 
     completed = next(r for r in caplog.records if r.getMessage() == "processing_completed")
-    assert completed.fields_found == 10 and completed.line_items == 2 and completed.status == "COMPLETED"
+    assert completed.fields_found == 11 and completed.line_items == 2 and completed.status == "COMPLETED"
     blob = " ".join(f"{r.getMessage()} {vars(r)}" for r in caplog.records)
     for secret in ("Northstar", "NS-1048", "4,820.00", "4820", "Meridian", "Pine Street"):
         assert secret not in blob

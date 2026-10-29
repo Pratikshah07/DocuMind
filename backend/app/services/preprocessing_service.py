@@ -112,12 +112,15 @@ def estimate_skew(image: Array) -> float:
     return round(float(-best), 2) + 0.0  # + 0.0 turns -0.0 into 0.0
 
 
-def deskew(image: Array) -> Array:
-    angle = estimate_skew(image)
+def _deskew_by(image: Array, angle: float) -> tuple[Array, bool]:
     if not (_MIN_SKEW_DEG <= abs(angle) <= _MAX_SKEW_DEG):
-        return image.copy()
+        return image.copy(), False
     border = 255 if image.ndim == 2 else (255, 255, 255)
-    return _rotate(image, -angle, border=border, flags=cv2.INTER_CUBIC)
+    return _rotate(image, -angle, border=border, flags=cv2.INTER_CUBIC), True
+
+
+def deskew(image: Array) -> Array:
+    return _deskew_by(image, estimate_skew(image))[0]
 
 
 STEPS: dict[str, Step] = {
@@ -140,7 +143,17 @@ class Preprocessor:
             raise ValueError(f"Unknown preprocessing steps: {unknown}. Known: {sorted(STEPS)}")
 
     def run(self, image: Image.Image | Array) -> Array:
+        return self.run_tracked(image)[0]
+
+    def run_tracked(self, image: Image.Image | Array) -> tuple[Array, bool]:
+        """Like ``run``; also says whether the page was rotated (then OCR word positions no longer
+        line up with the original page, so they are not used as field locations)."""
         array = np.asarray(image.convert("RGB")) if isinstance(image, Image.Image) else image
+        rotated = False
         for name in self.steps:
-            array = STEPS[name](array)
-        return array
+            if name == "deskew":
+                array, turned = _deskew_by(array, estimate_skew(array))
+                rotated |= turned
+            else:
+                array = STEPS[name](array)
+        return array, rotated

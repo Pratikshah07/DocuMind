@@ -36,6 +36,30 @@ CODE_NEGATIVE_AMOUNT = "negative_amount"
 CODE_TOTALS_MISMATCH = "totals_mismatch"
 CODE_LINE_ITEMS_MISMATCH = "line_items_mismatch"
 CODE_LINE_ITEM_ARITHMETIC = "line_item_arithmetic"
+CODE_LOW_CONFIDENCE = "low_confidence"
+CODE_DUPLICATE_INVOICE = "duplicate_invoice_number"
+
+# Every rule, with the review action shown next to its warning. Codes are stable API values.
+SUGGESTED_ACTIONS = {
+    CODE_MISSING_REQUIRED: "Find the value on the document and enter it; leave it empty only if the "
+    "document really has none.",
+    CODE_TYPE_UNKNOWN: "Check that this is an invoice or receipt, then set the type.",
+    CODE_TAX_SUMMED: "Check that these tax lines belong together.",
+    CODE_DUE_BEFORE_ISSUE: "Compare both dates with the document; one may be misread.",
+    CODE_DATE_IN_FUTURE: "Check the date against the document; it may be misread.",
+    CODE_DATE_IMPLAUSIBLE: "Check the date against the document; it may be misread.",
+    CODE_NEGATIVE_AMOUNT: "Check whether this is a refund or credit, or a misread sign.",
+    CODE_TOTALS_MISMATCH: "Compare subtotal, tax, discount and total with the document and correct the "
+    "misread one.",
+    CODE_LINE_ITEMS_MISMATCH: "Look for missing, extra or misread line items, or a misread subtotal.",
+    CODE_LINE_ITEM_ARITHMETIC: "Check this row's quantity, unit price and line total.",
+    CODE_LOW_CONFIDENCE: "Compare the value with the document. Saving it confirms it.",
+    CODE_DUPLICATE_INVOICE: "Check whether this invoice was already uploaded before paying or booking it.",
+    FLAG_AMBIGUOUS_DATE: "Confirm the date and enter it as YYYY-MM-DD.",
+    FLAG_AMBIGUOUS_AMOUNT: "Confirm the amount and enter it with a '.' decimal point.",
+    FLAG_MULTIPLE_CANDIDATES: "Check which value the document means and correct it if needed.",
+    FLAG_INVALID_FORMAT: "Enter a valid value, or clear the field if the document has none.",
+}
 
 # Issues that describe how a value was *read*; they survive re-validation unless the field is edited.
 FIELD_LEVEL_CODES = {
@@ -141,6 +165,9 @@ def rule_issues(
     today = today or date.today()
     issues: list[Issue] = []
 
+    def val(name: str):
+        return fields[name].normalized if name in fields else None
+
     if document_type == DocumentType.UNKNOWN:
         issues.append(
             Issue(
@@ -150,9 +177,6 @@ def rule_issues(
     for name in REQUIRED_FIELDS[document_type]:
         if fields[name].is_missing:
             issues.append(Issue(name, CODE_MISSING_REQUIRED, f"No {_LABELS[name]} was found."))
-
-    def val(name: str):
-        return fields[name].normalized if name in fields else None
 
     issued, due = val("invoice_date"), val("due_date")
     if isinstance(issued, date) and isinstance(due, date) and due < issued:
@@ -269,6 +293,31 @@ def field_status(
     if has_warning or (effective is not None and effective < config.confidence_review):
         return "uncertain"
     return "ok"
+
+
+def low_confidence_issues(
+    document_type: DocumentType,
+    fields: dict[str, FieldResult],
+    effective: dict[str, float | None],
+    issues: Sequence[Issue],
+    config: ValidationConfig,
+) -> list[Issue]:
+    """A required field read with low confidence and no other warning explaining why."""
+    explained = {i.field for i in issues if i.severity != WarningSeverity.INFO}
+    found = []
+    for name in REQUIRED_FIELDS[document_type]:
+        f, score = fields[name], effective.get(name)
+        if f.is_missing or f.is_invalid or score is None or name in explained:
+            continue
+        if score < config.confidence_review:
+            found.append(
+                Issue(
+                    name,
+                    CODE_LOW_CONFIDENCE,
+                    f"{_LABELS[name].capitalize()} was read with low confidence ({score:.0%}).",
+                )
+            )
+    return found
 
 
 def overall_confidence(document_type: DocumentType, effective: dict[str, float | None], fields) -> float:

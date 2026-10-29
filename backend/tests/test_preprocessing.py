@@ -71,3 +71,17 @@ def test_preprocessor_applies_steps_in_order(page: np.ndarray) -> None:
 def test_unknown_step_is_a_configuration_error() -> None:
     with pytest.raises(ValueError, match="sharpen"):
         Preprocessor(["grayscale", "sharpen"])
+
+
+def test_run_tracked_reports_rotation() -> None:
+    from app.services.preprocessing_service import Preprocessor
+    from tests.samples import make_photo_jpeg, render_text_image
+
+    straight = Preprocessor(["grayscale", "deskew"]).run_tracked(render_text_image())
+    assert straight[1] is False
+    import io
+
+    from PIL import Image
+
+    skewed = Image.open(io.BytesIO(make_photo_jpeg(angle=4.0)))
+    assert Preprocessor(["grayscale", "deskew"]).run_tracked(skewed)[1] is True

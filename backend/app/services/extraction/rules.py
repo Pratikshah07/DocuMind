@@ -91,6 +91,28 @@ _DUE_DATE = [
 _VENDOR = [(_label(r"vendor|seller|supplier|sold\s+by|merchant|billed\s+by|from|company"), STRONG)]
 _BILLING = [(_label(r"bill(?:ed)?\s+to|billing\s+address|sold\s+to|customer"), STRONG)]
 _SHIPPING = [(_label(r"ship(?:ped)?\s+to|shipping\s+address|deliver(?:y|ed)?\s+(?:to|address)"), STRONG)]
+# "PO", "P.O.", "Purchase order", optionally followed by No/Number/#. "\b" keeps "Portland" or "PO Box" out
+# (a PO Box value has no digit-bearing token right after the label).
+_PO = [
+    (
+        _label(
+            r"(?:p\.?\s?o\b\.?|purchase\s+order)(?:\s*(?:n[o0]\.?|number|num|#|ref(?:erence)?))?",
+            anywhere=True,
+        ),
+        STRONG,
+    )
+]
+_TAX_ID = [
+    (
+        _label(
+            r"gstin|gst\s*(?:no|number|reg(?:istration)?(?:\s*no)?)|vat\s*(?:no|number|id|reg(?:istration)?(?:\s*no)?)"
+            r"|tax\s*(?:id|number|no|reg(?:istration)?(?:\s*no)?)|tin|ein|abn|uid|ust-?id(?:nr)?",
+            anywhere=True,
+        ),
+        STRONG,
+    )
+]
+_TAX_ID_VALUE = re.compile(r"^[A-Z0-9][A-Z0-9 ./-]{4,24}$", re.I)
 
 # Amount labels: (pattern, priority). Higher priority wins when several match.
 _TOTAL = [
@@ -115,7 +137,7 @@ _SUBTOTAL = [(_label(fz("subtotal") + "|" + fz("sub", "total") + r"|net\s+amount
 _TAX = [
     (
         _label(
-            r"(?:sales\s+)?(?:tax|vat|gst|hst|pst|cgst|sgst|igst)(?:\s*\(?[\d.]+\s*%\)?)?(?!\s*(?:id|no|number|#|reg))"
+            r"(?:sales\s+)?(?:tax|vat|gst|hst|pst|cgst|sgst|igst)\b(?:\s*\(?[\d.]+\s*%\)?)?(?!\s*(?:id|no|number|#|reg))"
         ),
         1,
     )
@@ -134,6 +156,7 @@ _PAYMENT_METHODS = [  # (regex, canonical name). The raw value stored is the mat
     (r"\bpaypal\b", "PayPal"),
     (r"\b(?:bank|wire)\s+transfer\b|\bach\b|\bneft\b|\bimps\b", "Bank transfer"),
     (r"\bcash\b", "Cash"),
+    (r"\bcard\b", "Card"),  # after the specific card names: "Card type: VISA" stays "Visa"
 ]
 
 _TITLE_ONLY = re.compile(
@@ -176,7 +199,10 @@ class RuleBasedExtractor(FieldExtractor):
             self._pick(
                 fields, name, self._amounts(lines, labels), prefer_last=True, sum_distinct=(name == "tax")
             )
-        self._pick(fields, "vendor_name", self._vendors(lines))
+        self._pick(fields, "vendor_name", self._vendors(lines, guess=document_type != DocumentType.UNKNOWN))
+        self._pick(fields, "buyer_name", self._buyer(lines))
+        self._pick(fields, "po_number", self._po_numbers(lines))
+        self._pick(fields, "vendor_tax_id", self._tax_ids(lines))
         self._pick(fields, "billing_address", self._address(lines, _BILLING))
         self._pick(fields, "shipping_address", self._address(lines, _SHIPPING))
         self._pick(fields, "payment_method", self._payment(lines))
@@ -184,7 +210,11 @@ class RuleBasedExtractor(FieldExtractor):
         if fields["invoice_date"].is_missing:
             self._pick(fields, "invoice_date", self._first_date(lines))
         _discount_as_positive(fields["discount"])
-        return fields, extract_line_items(lines)
+        # Line items without a table header may be confirmed by adding up to the subtotal or total.
+        targets = [
+            fields[n].normalized for n in ("subtotal", "total") if isinstance(fields[n].normalized, Decimal)
+        ]
+        return fields, extract_line_items(lines, targets=targets)
 
     # --- Selection ---
 
@@ -321,29 +351,74 @@ class RuleBasedExtractor(FieldExtractor):
             )
         return found
 
-    def _vendors(self, lines: list[Line]) -> list[_Candidate]:
+    def _vendors(self, lines: list[Line], *, guess: bool = True) -> list[_Candidate]:
         labelled = []
         for i, _, match, strength in self._matches(lines, _VENDOR):
             rest, source = _rest_or_next(lines, i, match.group("rest"))
             if _looks_like_name(rest):
                 labelled.append(_Candidate(rest[:120], rest[:120], source, strength))
-        if labelled:
+        if labelled or not guess:  # no letterhead guess on something that isn't an invoice/receipt
             return labelled
-        # Pattern: the first name-like line near the top of the first page (letterhead).
+        # Pattern: the first name-like line near the top of the first page (letterhead). Only the left
+        # column counts: in a two-column header the text layer puts "Vendor  Bill To: Buyer" on one line.
         first_page = lines[0].page_number if lines else 1
         for line in [ln for ln in lines if ln.page_number == first_page][:6]:
-            text = line.text.strip(" -|")
+            text = _left_column(line.text).strip(" -|")
             if _TITLE_ONLY.match(text) or not _looks_like_name(text) or _ANY_LABEL.search(text):
                 continue
             return [_Candidate(text[:120], text[:120], line, "pattern")]
         return []
 
+    def _buyer(self, lines: list[Line]) -> list[_Candidate]:
+        """The first line of the Bill To block: "Bill To: Kaveri Traders, 12 MG Road" → Kaveri Traders."""
+        for i, _, match, strength in self._matches(lines, _BILLING):
+            rest, source = _rest_or_next(lines, i, match.group("rest"))
+            name = re.split(r"\s{2,}|,", rest)[0].strip()
+            if _looks_like_name(name) and not _ANY_LABEL.search(name):
+                return [_Candidate(name[:120], name[:120], source, strength)]
+        return []
+
+    def _po_numbers(self, lines: list[Line]) -> list[_Candidate]:
+        found = []
+        for i, _, match, strength in self._matches(lines, _PO):
+            rest, source = _rest_or_next(lines, i, match.group("rest"))
+            token = _INVOICE_NO_TOKEN.match(rest)
+            if token and re.search(r"\d", token.group()):
+                value = token.group().rstrip(".-/")
+                found.append(_Candidate(value, value, source, strength, label=match.group("label")))
+        return found
+
+    def _tax_ids(self, lines: list[Line]) -> list[_Candidate]:
+        """The vendor's tax/VAT/GST registration: the first one outside the Bill To / Ship To blocks."""
+        buyer_lines = {
+            id(ln)
+            for i, line, _, _ in self._matches(lines, _BILLING + _SHIPPING)
+            for ln in lines[i : i + 5]
+            if ln.page_number == line.page_number
+        }
+        for i, line, match, strength in self._matches(lines, _TAX_ID):
+            if id(line) in buyer_lines:
+                continue
+            rest, source = _rest_or_next(lines, i, match.group("rest"))
+            value = re.split(r"\s{2,}", rest)[0].strip(" .")
+            if _TAX_ID_VALUE.match(value) and sum(ch.isdigit() for ch in value) >= 5:
+                return [_Candidate(value, value, source, strength, label=match.group("label"))]
+        return []
+
     def _address(self, lines: list[Line], labels) -> list[_Candidate]:
         for i, line, match, strength in self._matches(lines, labels):
             parts = [match.group("rest").strip()] if match.group("rest").strip() else []
+            # Label in a right-hand column: the following lines hold both columns; keep only the right one.
+            right_column = match.start("label") > 0 and bool(
+                re.search(r"\S\s{2,}", line.text[: match.start("label") + 1])
+            )
             for nxt in lines[i + 1 : i + 6]:
                 if nxt.page_number != line.page_number or len(parts) >= 4:
                     break
+                if right_column:
+                    nxt = Line(
+                        nxt.page_number, nxt.index, re.split(r"\s{2,}", nxt.text)[-1], nxt.ocr_confidence
+                    )
                 starts_new_section = bool(_ANY_LABEL.search(nxt.text)) and not nxt.text[:1].isdigit()
                 is_summary_line = bool(find_amounts(nxt.text)) and bool(
                     re.search(r"total|tax|due", nxt.text, re.I)
@@ -380,6 +455,10 @@ class RuleBasedExtractor(FieldExtractor):
         # "$" alone doesn't say which dollar: weaker evidence than a written code.
         strength = STRONG if explicit or raw not in ("$",) else WEAK
         return [_Candidate(raw, code, line, strength, flags=flags, notes=notes)]
+
+
+def _left_column(text: str) -> str:
+    return re.split(r"\s{2,}", text, maxsplit=1)[0]
 
 
 def _label_key(label: str) -> str:

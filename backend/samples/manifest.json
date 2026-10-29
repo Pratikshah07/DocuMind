@@ -50,5 +50,21 @@
   "13_invoice_photo.jpg": {
     "purpose": "Skewed, noisy, shadowed photo -> OCR",
     "bytes": 277448
+  },
+  "14_invoice_tax_column.pdf": {
+    "purpose": "VAT column, wrapped description with numbers, PO number, VAT ID",
+    "bytes": 4060
+  },
+  "15_invoice_two_column.pdf": {
+    "purpose": "Vendor and Bill To side by side (interleaved columns)",
+    "bytes": 2766
+  },
+  "16_receipt_compact.pdf": {
+    "purpose": "Till receipt: '2 x item @ price', weighed item, no table header",
+    "bytes": 2288
+  },
+  "17_low_res_scan.pdf": {
+    "purpose": "Low-resolution (100 dpi) scan of the tax-column invoice -> OCR",
+    "bytes": 51129
   }
 }

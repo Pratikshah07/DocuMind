@@ -125,6 +125,8 @@ export type ExtractedField = {
   confidence_level: 'high' | 'medium' | 'low' | null;
   method: string | null;
   page_number: number | null;
+  /** [x0, y0, x1, y1] as fractions of the page; null when the value couldn't be located unambiguously. */
+  bbox: number[] | null;
   required: boolean;
   is_user_edited: boolean;
 };
@@ -139,7 +141,14 @@ export type LineItem = {
   page_number: number | null;
 };
 
-export type ValidationWarning = { field: string | null; code: string; message: string; severity: Severity };
+export type ValidationWarning = {
+  field: string | null;
+  code: string;
+  message: string;
+  severity: Severity;
+  page_number: number | null;
+  suggested_action: string | null;
+};
 
 export type Extraction = {
   document_id: string;

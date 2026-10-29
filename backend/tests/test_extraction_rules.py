@@ -205,3 +205,69 @@ def test_single_space_table_columns_are_not_read_as_thousands() -> None:
 def test_space_grouped_amount_accepted_as_a_whole_labelled_value() -> None:
     fields = run("ACME\nFACTURE INVOICE\nInvoice No: F-1\nTotal: 1 249,50 EUR").fields
     assert fields["total"].normalized == D("1249.50") and fields["total"].value == "1 249,50"
+
+
+# --- Harder layouts (Part 7) -------------------------------------------------------------
+
+
+def test_tax_column_is_not_read_as_unit_price_and_wrapped_text_is_kept() -> None:
+    outcome = run(T.TAX_COLUMN_INVOICE)
+    first, second = outcome.line_items
+    assert (first.quantity, first.unit_price, first.total) == (D("1"), D("1200.00"), D("1200.00"))
+    assert first.description == "Quarterly data platform licence (April to June 2025, 25 seats)"
+    assert (second.quantity, second.unit_price, second.total) == (D("2"), D("350.00"), D("700.00"))
+    assert not any(i.code == "line_item_arithmetic" for i in outcome.issues)
+
+
+def test_po_number_vendor_tax_id_and_buyer() -> None:
+    fields = run(T.TAX_COLUMN_INVOICE).fields
+    assert fields["po_number"].normalized == "PO-55120"
+    assert fields["vendor_tax_id"].normalized == "GB 284 7731 06"
+    assert fields["buyer_name"].normalized == "Corvid Health Partners"
+    assert fields["tax"].normalized == D("380.00")  # "VAT No" is an identifier, not the VAT amount
+
+
+def test_gstin_is_an_identifier_not_a_tax_amount() -> None:
+    text = "Kiran Textiles\nGSTIN: 29ABCDE1234F1Z5\nInvoice No: KT-11\nInvoice Date: 2025-01-10\n"
+    text += "Total  INR 590.00"
+    fields = run(text).fields
+    assert fields["vendor_tax_id"].normalized == "29ABCDE1234F1Z5"
+    assert fields["tax"].is_missing
+
+
+def test_buyer_tax_id_is_not_taken_as_the_vendors() -> None:
+    text = "Kiran Textiles\nInvoice No: KT-11\nBill To:\nMeera Stores\nGSTIN: 33ZZZZZ9999Z1Z9\nTotal  590.00"
+    assert run(text).fields["vendor_tax_id"].is_missing
+
+
+def test_po_box_and_place_names_are_not_po_numbers() -> None:
+    text = "Northstar Studio\nPO Box 12, Portland\nInvoice No: NS-1\nTotal  10.00"
+    assert run(text).fields["po_number"].is_missing
+
+
+def test_two_column_header_keeps_vendor_and_buyer_apart() -> None:
+    fields = run(T.TWO_COLUMN_INVOICE).fields
+    assert fields["vendor_name"].normalized == "Quillon Print Works"
+    assert fields["buyer_name"].normalized == "Ostara Bakery"
+    assert fields["billing_address"].normalized == "Ostara Bakery, 9 Mill Lane, Bath BA1 2HN"
+
+
+def test_compact_receipt_lines_confirmed_by_the_total() -> None:
+    outcome = run(T.COMPACT_RECEIPT)
+    rows = [(i.description, i.quantity, i.unit_price, i.total) for i in outcome.line_items]
+    assert rows == [
+        ("Oat milk 1L", D("2"), D("2.10"), D("4.20")),
+        ("Bananas", D("1.24"), D("1.10"), D("1.36")),
+        ("Sourdough loaf", None, None, D("3.80")),
+    ]
+    assert outcome.fields["payment_method"].normalized == "Card"
+
+
+def test_unconfirmed_single_price_lines_are_not_manufactured() -> None:
+    # Same receipt with a total that does not match the lines: only arithmetic-proven rows survive.
+    outcome = run(T.COMPACT_RECEIPT.replace("TOTAL  GBP 9.36", "TOTAL  GBP 12.00"))
+    assert [i.description for i in outcome.line_items] == ["Oat milk 1L", "Bananas"]
+
+
+def test_no_letterhead_guess_on_documents_that_are_not_invoices() -> None:
+    assert run(T.NOT_AN_INVOICE).fields["vendor_name"].is_missing

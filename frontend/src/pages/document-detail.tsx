@@ -79,7 +79,7 @@ function EditHistory({ documentId }: { documentId: string }) {
   );
 }
 
-function PagePreview({ documentId, page, zoom }: { documentId: string; page: number; zoom: number }) {
+function PagePreview({ documentId, page, zoom, highlight }: { documentId: string; page: number; zoom: number; highlight?: number[] | null }) {
   const preview = useQuery({
     queryKey: ['documents', 'preview', documentId, page],
     queryFn: () => api.pagePreview(documentId, page).then((r) => r.blob),
@@ -94,7 +94,19 @@ function PagePreview({ documentId, page, zoom }: { documentId: string; page: num
   }, [preview.data]);
   if (preview.isError) return <p className="text-xs text-muted-foreground">Preview not available for this page.</p>;
   if (!url) return <div className="h-[520px] w-full max-w-[460px] animate-pulse rounded-sm bg-card" />;
-  return <img src={url} alt={`Page ${page}`} className="w-full max-w-[560px] origin-top bg-white shadow-[0_4px_18px_rgba(35,45,43,.12)] transition-transform" style={{ transform: `scale(${zoom / 100})` }} data-testid="img-page-preview" />;
+  return (
+    <div className="relative w-full max-w-[560px] origin-top transition-transform" style={{ transform: `scale(${zoom / 100})` }}>
+      <img src={url} alt={`Page ${page}`} className="w-full bg-white shadow-[0_4px_18px_rgba(35,45,43,.12)]" data-testid="img-page-preview" />
+      {highlight && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute rounded-[2px] bg-primary/15 ring-2 ring-primary"
+          style={{ left: `${highlight[0] * 100 - 0.6}%`, top: `${highlight[1] * 100 - 0.4}%`, width: `${(highlight[2] - highlight[0]) * 100 + 1.2}%`, height: `${(highlight[3] - highlight[1]) * 100 + 0.8}%` }}
+          data-testid="highlight-field"
+        />
+      )}
+    </div>
+  );
 }
 
 export default function DocumentDetailPage() {
@@ -110,6 +122,7 @@ export default function DocumentDetailPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'delete' | 'reprocess' | null>(null);
   const [discardCorrections, setDiscardCorrections] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null); // field whose location is highlighted
 
   const detail = useQuery({
     queryKey: queryKeys.document(id),
@@ -231,6 +244,13 @@ export default function DocumentDetailPage() {
   const fieldWarnings = (name: string) => warnings.filter((w) => w.field === name);
   const lineItemsTotal = rows.reduce((sum, r) => sum + (num(r.total) ?? 0), 0);
   const currency = data?.fields.find((f) => f.name === 'currency')?.normalized_value as string | null | undefined;
+  const focusedField = data?.fields.find((f) => f.name === focused && f.bbox && f.page_number);
+  const highlight = focusedField && focusedField.page_number === page && values[focusedField.name] === serverValues[focusedField.name] ? focusedField.bbox : null;
+  const showField = (name: string) => {
+    setFocused(name);
+    const target = data?.fields.find((f) => f.name === name)?.page_number;
+    if (target && target !== page) setPage(target);
+  };
 
   return (
     <div className="page-enter">
@@ -271,7 +291,18 @@ export default function DocumentDetailPage() {
         <div className="mb-5 rounded-md border border-[#e7d9b8] bg-[#fbf6ea] p-4 text-sm dark:border-[#4a3d22] dark:bg-[#2b2416]" data-testid="banner-review">
           <div className="flex items-center gap-2 font-semibold text-[#7d5d27] dark:text-[#e2bd7a]"><CircleAlert size={16} />Review needed</div>
           {warnings.length > 0 ? (
-            <ul className="mt-2 space-y-1 text-xs leading-5 text-[#6f5426] dark:text-[#d9c28f]">{warnings.filter((w) => w.severity !== 'INFO').map((w, i) => <li key={i} data-testid={`warning-${w.code}`}>• {w.message}</li>)}</ul>
+            <ul className="mt-2 space-y-2 text-xs leading-5 text-[#6f5426] dark:text-[#d9c28f]">{warnings.filter((w) => w.severity !== 'INFO').map((w, i) => (
+              <li key={i} data-testid={`warning-${w.code}`}>
+                • {w.message}
+                {(w.suggested_action || w.page_number) && (
+                  <span className="block pl-3 text-[11px] opacity-90">
+                    {w.suggested_action}
+                    {w.page_number && w.field && !w.field.startsWith('line_items') && <> <button type="button" className="inline-flex min-h-8 items-center font-semibold underline" onClick={() => showField(w.field!)} data-testid={`button-show-${w.field}`}>Show on page {w.page_number}</button></>}
+                    {w.page_number && w.field?.startsWith('line_items') && <> (page {w.page_number})</>}
+                  </span>
+                )}
+              </li>
+            ))}</ul>
           ) : <p className="mt-1 text-xs text-[#6f5426] dark:text-[#d9c28f]">Some required values have low confidence. Check them against the document.</p>}
         </div>
       )}
@@ -287,7 +318,7 @@ export default function DocumentDetailPage() {
             </div>
           </div>
           <div className="subtle-grid flex min-h-[260px] justify-center overflow-auto bg-[#eeefeb] p-3 dark:bg-muted/30 sm:min-h-[540px] sm:p-6">
-            {hasPreview ? <PagePreview documentId={id} page={page} zoom={zoom} /> : (
+            {hasPreview ? <PagePreview documentId={id} page={page} zoom={zoom} highlight={highlight} /> : (
               <p className="self-center text-center text-xs text-muted-foreground">{isInProgress(doc.status) ? 'The preview appears when processing finishes.' : 'No preview is available. Download the original instead.'}</p>
             )}
           </div>
@@ -337,11 +368,12 @@ export default function DocumentDetailPage() {
                       <label key={field.name} className={`block ${wide ? 'sm:col-span-2' : ''}`} data-testid={`field-${field.name}`}>
                         <span className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold text-muted-foreground">
                           <span className="flex min-w-0 flex-wrap items-center gap-1.5">{FIELD_LABEL[field.name] ?? field.name}{field.required && <span className="text-red-700">*</span>}<FieldStatusBadge status={field.status} />{field.is_user_edited && <span className="rounded-sm bg-accent px-1.5 py-0.5 text-[9px] text-primary">Edited</span>}</span>
-                          {effective !== null && <span className={low ? 'text-[#a77c36]' : 'text-primary'} title={`${METHOD_LABEL[field.method ?? ''] ?? ''}${field.page_number ? ` · page ${field.page_number}` : ''}. Heuristic score, not measured accuracy.`}>{formatPercent(effective)} {field.confidence_level}</span>}
+                          {effective !== null && <span className={low ? 'text-[#a77c36]' : 'text-primary'} title={`${METHOD_LABEL[field.method ?? ''] ?? ''}${field.page_number ? ` · page ${field.page_number}` : ''}${field.bbox ? ' · highlighted on the preview when selected' : ''}. Heuristic score, not measured accuracy.`}>{formatPercent(effective)} {field.confidence_level}</span>}
                         </span>
                         <input
                           value={values[field.name] ?? ''}
                           onChange={(e) => { setValues((v) => ({ ...v, [field.name]: e.target.value })); setFieldErrors((f) => ({ ...f, [field.name]: '' })); }}
+                          onFocus={() => showField(field.name)}
                           placeholder={field.status === 'missing' ? 'Not found in the document' : DATE_FIELDS.has(field.name) ? 'YYYY-MM-DD' : AMOUNT_FIELDS.has(field.name) ? '0.00' : ''}
                           className={`h-11 w-full rounded-sm border bg-background px-2.5 text-xs outline-none focus:border-primary sm:h-9 ${error ? 'border-red-500' : low ? 'border-[#d8c59e]' : 'border-border'}`}
                           data-testid={`input-field-${field.name}`}

@@ -32,6 +32,9 @@ def test_get_extraction_of_complete_invoice(client: TestClient) -> None:
     assert body["status"] == "COMPLETED" and body["needs_review"] is False
     assert body["document_type"] == "INVOICE" and 0.8 < body["document_type_confidence"] <= 1
     fields = by_name(body)
+    # Located on the page: the "Total Due  USD 4,820.00" line, right of the label.
+    x0, y0, x1, y1 = fields["total"].pop("bbox")
+    assert 0 < x0 < x1 < 1 and 0.35 < y0 < y1 < 0.45
     assert [f["name"] for f in body["fields"]][:4] == [
         "vendor_name",
         "invoice_number",
@@ -219,7 +222,7 @@ def test_patch_is_idempotent(client: TestClient) -> None:
 
     assert first == second
     assert by_name(second)["currency"]["value"] == "USD"
-    assert len(second["fields"]) == 12 and len(second["line_items"]) == 2
+    assert len(second["fields"]) == 15 and len(second["line_items"]) == 2
 
 
 def test_reprocessing_keeps_user_corrections(client: TestClient) -> None:
@@ -321,3 +324,46 @@ def test_edit_history_is_private_to_the_workspace(client: TestClient) -> None:
     document_id = response.json()["id"]
     assert client.get(f"/api/documents/{document_id}/edits").status_code == 404  # other workspace
     assert client.get(f"/api/documents/{document_id}/edits", headers=headers).status_code == 200
+
+
+def test_warnings_carry_page_and_suggested_action(client: TestClient) -> None:
+    document_id = upload_text(client, T.TOTALS_MISMATCH)
+    warnings = client.get(f"/api/documents/{document_id}/extraction").json()["warnings"]
+    mismatch = next(w for w in warnings if w["code"] == "totals_mismatch")
+    assert mismatch["field"] == "total" and mismatch["page_number"] == 1
+    assert "Compare subtotal, tax, discount and total" in mismatch["suggested_action"]
+
+
+def test_same_invoice_twice_is_flagged_on_the_later_copy(client: TestClient) -> None:
+    content = make_text_pdf(T.STANDARD_INVOICE)
+    first = client.post("/api/documents/upload", files={"file": ("a.pdf", content, "application/pdf")})
+    second = client.post(
+        "/api/documents/upload",
+        files={"file": ("b.pdf", content, "application/pdf")},
+        params={"allow_duplicate": "true"},
+    )
+    body = client.get(f"/api/documents/{second.json()['id']}/extraction").json()
+    duplicate = [w for w in body["warnings"] if w["code"] == "duplicate_invoice_number"]
+    assert duplicate and "a.pdf" in duplicate[0]["message"] and body["status"] == "NEEDS_REVIEW"
+    first_body = client.get(f"/api/documents/{first.json()['id']}/extraction").json()
+    assert first_body["status"] == "COMPLETED"  # it was alone when it was processed
+
+    # Correcting the invoice number on the copy clears the warning.
+    patched = client.patch(
+        f"/api/documents/{second.json()['id']}/extraction", json={"fields": {"invoice_number": "NS-1049"}}
+    ).json()
+    assert not any(w["code"] == "duplicate_invoice_number" for w in patched["warnings"])
+
+
+def test_duplicate_invoice_check_stays_inside_the_workspace(client: TestClient) -> None:
+    content = make_text_pdf(T.STANDARD_INVOICE)
+    client.post("/api/documents/upload", files={"file": ("a.pdf", content, "application/pdf")})
+    other = client.post(
+        "/api/documents/upload",
+        files={"file": ("a.pdf", content, "application/pdf")},
+        headers={"X-Workspace-Token": "c" * 40},
+    ).json()
+    body = client.get(
+        f"/api/documents/{other['id']}/extraction", headers={"X-Workspace-Token": "c" * 40}
+    ).json()
+    assert not any(w["code"] == "duplicate_invoice_number" for w in body["warnings"])

@@ -112,6 +112,18 @@ def main() -> int:
             assert image.evaluate("img => img.naturalWidth") > 0, "preview image empty"
             page.screenshot(path=shots / "05-detail.png", full_page=True)
 
+        @step("5a. Selecting a field highlights it on the page preview")
+        def highlight():
+            page.goto(f"/app/documents/{docs['standard']}")
+            expect(page.get_by_test_id("img-page-preview")).to_be_visible()
+            page.get_by_test_id("input-field-total").focus()
+            box = page.get_by_test_id("highlight-field")
+            expect(box).to_be_visible()
+            img = page.get_by_test_id("img-page-preview").bounding_box()
+            hb = box.bounding_box()
+            assert img and hb and img["y"] < hb["y"] < img["y"] + img["height"] * 0.5, (img, hb)
+            return "total located on page 1"
+
         @step("6. Scanned PDF goes through OCR")
         def scanned():
             docs["scanned"] = upload_and_wait(page, SAMPLES / "12_scanned_invoice.pdf")
@@ -134,6 +146,10 @@ def main() -> int:
             page.goto(f"/app/documents/{docs['mismatch']}")
             expect(page.get_by_test_id("banner-review")).to_be_visible()
             expect(page.get_by_test_id("warning-totals_mismatch")).to_contain_text("Totals don’t add up".replace("’", "'"))
+            # Each warning says what to check and links to where the value is on the page.
+            expect(page.get_by_test_id("warning-totals_mismatch")).to_contain_text("Compare subtotal, tax, discount and total")
+            page.get_by_test_id("button-show-total").click()
+            expect(page.get_by_test_id("highlight-field")).to_be_visible()
             page.screenshot(path=shots / "08-review.png", full_page=True)
 
         @step("9. Invalid edit → 422 shown, input kept")
@@ -240,7 +256,7 @@ def main() -> int:
             page.goto("/app/documents")
             expect(page.get_by_test_id("text-document-count")).to_have_text("0 documents")
 
-        for test in (landing, health, empty, text_pdf, detail, scanned, invalid, review, invalid_edit, edit,
+        for test in (landing, health, empty, text_pdf, detail, highlight, scanned, invalid, review, invalid_edit, edit,
                      reprocess_keeps_edit, duplicate, download,
                      dashboards, chat, delete, isolation, mobile, cleanup):
             test()

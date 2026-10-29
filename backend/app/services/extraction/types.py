@@ -27,6 +27,9 @@ FIELD_KINDS: dict[str, FieldKind] = {
     "discount": FieldKind.AMOUNT,
     "total": FieldKind.AMOUNT,
     "payment_method": FieldKind.TEXT,
+    "buyer_name": FieldKind.TEXT,
+    "po_number": FieldKind.TEXT,
+    "vendor_tax_id": FieldKind.TEXT,
     "billing_address": FieldKind.TEXT,
     "shipping_address": FieldKind.TEXT,
 }
@@ -81,6 +84,9 @@ class FieldResult:
     # Free-form details for warning messages (e.g. the alternative date reading).
     notes: dict[str, str] = field(default_factory=dict)
     user_edited: bool = False
+    # Where the value is on its page: [x0, y0, x1, y1] as fractions of the page size. Set only when
+    # the value's words were found exactly once on that page (see extraction/layout.py).
+    bbox: list[float] | None = None
 
     @property
     def is_missing(self) -> bool:
