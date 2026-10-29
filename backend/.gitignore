@@ -6,5 +6,5 @@ __pycache__/
 .coverage
 htmlcov/
 .env
-storage/
-chroma/
+/storage/
+/chroma/
