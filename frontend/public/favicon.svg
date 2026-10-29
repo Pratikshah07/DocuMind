@@ -1,3 +1,13 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>DocuMind</title>
+  <rect width="64" height="64" rx="14" fill="#316c65"/>
+  <g stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 23v-5a4 4 0 0 1 4-4h5"/>
+    <path d="M41 14h5a4 4 0 0 1 4 4v5"/>
+    <path d="M50 41v5a4 4 0 0 1-4 4h-5"/>
+    <path d="M23 50h-5a4 4 0 0 1-4-4v-5"/>
+    <path d="M23 26h18"/>
+    <path d="M23 32h18"/>
+    <path d="M23 38h11"/>
+  </g>
 </svg>
