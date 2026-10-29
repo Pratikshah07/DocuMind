@@ -742,5 +742,57 @@ defaults, so the existing `.env` keeps working.
   - delete, workspace isolation, mobile overflow, clean-up
   - no unexpected console errors
 
-**Remaining for release:** the owner's Render sign-in plus "New Blueprint"
-(see docs/DEPLOYMENT.md), then the smoke test against the public URL.
+**Released:** live at https://documind-klhw.onrender.com (smoke test 18/18
+against the public URL). Mobile pass `d0c775b` deployed and re-verified the same day.
+
+### Engineering pass (branch `feature/engineering-pass`, from `d0c775b`)
+
+**Audit baseline (2026-10-29, before any change)**
+- Git: `main` = `origin/main` = `d0c775b`, clean tree; live site serves that commit
+  (bundle hash checked, smoke test 18/18, mobile audit 20/20 pages without overflow).
+- Backend: 316 tests pass (SQLite + PostgreSQL), Ruff lint/format clean, `alembic check` clean.
+- Frontend: `tsc` + `vite build` pass. No test runner and no ESLint configured.
+- `npm audit --omit=dev`: 1 high (zod < 4.6.6, memory exhaustion). zod is declared but
+  never imported by app code.
+- No mock data remains in pages: all server-owned data comes from the API; browser
+  storage holds only the workspace key and theme.
+
+**Defects and gaps found (code read, not assumed)**
+1. Reprocessing silently discards manual corrections (D35); the UI only warns.
+2. No audit trail of edits.
+3. Duplicate uploads are accepted silently (SHA-256 stored, unused: D15).
+4. Orphaned storage objects (failed file delete after a row delete) are only logged.
+5. A server restart leaves documents stuck in PROCESSING/OCR until someone retries;
+   stale jobs are detected only on the next enqueue.
+6. Warnings lack page reference and suggested action; no low-confidence warning text.
+7. Not extracted: buyer, PO number, tax IDs. Bounding boxes never stored (D29).
+8. No labelled ground truth, so extraction quality has never been measured.
+9. Analytics aggregate in Python (D45); no latency, issue, completeness or tax summaries.
+10. No LLM provider seam beyond `FieldExtractor`; chat placeholder only (correct, D46).
+11. Mobile: 36 px zoom/upload-link controls; 9 px chart axis labels; intermediate
+    widths never audited; the sticky Save bar can cover the last field.
+12. No frontend unit tests; no benchmarks; README describes MVP only; no rollback guide.
+
+**Security review (P0) — findings**
+- Isolation: every document/processing/extraction/analytics query filters by
+  `workspace_id`; an ID from another workspace returns 404 (tests + earlier mutation
+  checks). A UUID alone grants nothing. No accounts exist: this is anonymous
+  isolation for a synthetic-data demo (D41), documented as such.
+- Paths: storage keys are server-generated and confined to the root (D16). SQL: ORM
+  only, LIKE input escaped. Errors: envelope without internals. Logs: IDs/codes only.
+- Limits: size (middleware + streaming), pages, pixels, per-IP rate, per-workspace cap,
+  bounded concurrency, OCR per-page timeout, 24 h retention.
+- Open: zod advisory (dependency removed, see P0); in-memory limiter is per instance (D47).
+
+**Checklist (priority order; ✅ = done and verified on this branch)**
+- P0 production safety: keep `main` untouched; security review; drop vulnerable unused dep.
+- P1 reliability: preserve corrections on reprocess + explicit discard option; edit
+  audit trail; duplicate policy; startup recovery of interrupted jobs; orphan sweep.
+- P2 extraction: warning page + suggested action; low-confidence warnings; buyer,
+  PO number, tax IDs; bounding boxes; labelled ground truth + measured evaluation.
+- P3 processing/storage: retryable error codes; composite indexes from real queries.
+- P4 analytics: SQL aggregation; latency, top issues, completeness, tax/discount.
+- P5 AI: LLM provider interface (disabled by default, Ollama for local dev), used only
+  to fill missing fields and always validated; chat stays disabled (no auth, no model host).
+- P6 product: mobile fixes + intermediate widths; sample-document onboarding; frontend
+  unit tests; benchmarks; README/deployment/rollback docs.
