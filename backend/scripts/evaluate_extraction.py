@@ -76,8 +76,12 @@ def run(only: list[str] | None = None) -> tuple[list, list[dict]]:
         tracemalloc.stop()
         fields = {n: _json(f.normalized) for n, f in outcome.fields.items()}
         items = [
-            {"description": i.description, "quantity": i.quantity, "unit_price": i.unit_price,
-             "total": i.total}  # fmt: skip
+            {
+                "description": i.description,
+                "quantity": i.quantity,
+                "unit_price": i.unit_price,
+                "total": i.total,
+            }  # fmt: skip
             for i in outcome.line_items
         ]
         scores.append(
