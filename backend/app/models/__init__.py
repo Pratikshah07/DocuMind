@@ -8,6 +8,7 @@ from app.db.base import Base
 from app.models.document import Document, DocumentPage, ExtractedField, LineItem, ValidationWarning
 from app.models.enums import DocumentStatus, DocumentType, JobStatus, TextSource, WarningSeverity
 from app.models.processing_job import ProcessingJob
+from app.models.stored_file import StoredFile
 from app.models.user import User
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "JobStatus",
     "LineItem",
     "ProcessingJob",
+    "StoredFile",
     "TextSource",
     "User",
     "ValidationWarning",

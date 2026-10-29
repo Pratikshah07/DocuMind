@@ -1,0 +1,15 @@
+.git
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+backend/.venv
+backend/.env
+backend/storage
+backend/chroma
+backend/tests
+backend/samples
+.env
+*.log

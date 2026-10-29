@@ -1,7 +1,7 @@
-# Local development services.
-# Phase 1: PostgreSQL only. Backend and frontend services are added in Phase 11.
+# Local services.
 #
-#   docker compose up -d postgres
+#   docker compose up -d postgres                 # database only (run the API with uvicorn)
+#   docker compose --profile app up -d --build    # + the production image on http://127.0.0.1:8080
 
 services:
   postgres:
@@ -20,6 +20,27 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Same image and settings as the Render deployment (render.yaml), against the local database.
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-documind}:${POSTGRES_PASSWORD:-documind}@postgres:5432/${POSTGRES_DB:-documind}
+      DEMO_MODE: "true"
+      RETENTION_HOURS: "24"
+      UPLOAD_RATE_LIMIT_PER_HOUR: "20"
+      MAX_DOCUMENTS_PER_WORKSPACE: "25"
+      MAX_UPLOAD_SIZE: "10485760"
+      MAX_PAGES: "10"
+      MAX_CONCURRENT_JOBS: "1"
+      STORAGE_BACKEND: database
+    mem_limit: 512m
 
 volumes:
   postgres-data:

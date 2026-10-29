@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import DocumentServiceDep, ProcessingServiceDep
+from app.api.deps import DocumentServiceDep, ProcessingServiceDep, RateLimited
 from app.core.errors import error_responses
 from app.schemas.document import (
     DocumentDetail,
@@ -28,7 +28,8 @@ router = APIRouter(prefix="/documents", tags=["documents"])
         "content; the extension and declared Content-Type must agree with it. The document is stored "
         "with status `UPLOADED` and processing is queued; poll `GET /documents/{id}/status`."
     ),
-    responses=error_responses(413, 415, 422),
+    responses=error_responses(401, 409, 413, 415, 422, 429),
+    dependencies=[RateLimited],
 )
 def upload_document(
     service: DocumentServiceDep,
@@ -69,6 +70,16 @@ def list_documents(
         limit=filters.limit,
         offset=filters.offset,
     )
+
+
+@router.delete(
+    "",
+    summary="Delete all documents in this workspace",
+    description="Removes every document of the caller's workspace, with its results and stored files.",
+    responses=error_responses(401, 422),
+)
+def delete_all_documents(service: DocumentServiceDep) -> dict[str, int]:
+    return {"deleted": service.delete_all()}
 
 
 @router.get(

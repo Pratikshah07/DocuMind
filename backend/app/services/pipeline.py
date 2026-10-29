@@ -20,6 +20,7 @@ Consistency rules:
 
 import io
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -59,6 +60,7 @@ class ProcessorConfig:
     pdf_min_text_chars: int = 25
     ocr_render_dpi: int = 300
     preview_max_width: int = 1200
+    max_concurrent_jobs: int = 2
     pdf_steps: tuple[str, ...] = ("grayscale", "deskew")
     image_steps: tuple[str, ...] = ("resize", "grayscale", "denoise", "contrast", "deskew", "threshold")
 
@@ -82,6 +84,15 @@ class _Run:
 
     def elapsed_ms(self) -> int:
         return int((time.perf_counter() - self.started) * 1000)
+
+
+_SLOTS: dict[int, threading.BoundedSemaphore] = {}
+_SLOTS_LOCK = threading.Lock()
+
+
+def _job_slots(limit: int) -> threading.BoundedSemaphore:
+    with _SLOTS_LOCK:
+        return _SLOTS.setdefault(limit, threading.BoundedSemaphore(limit))
 
 
 def preview_key(document_id: uuid.UUID, page_number: int) -> str:
@@ -121,6 +132,12 @@ class DocumentProcessor:
     # --- Entry point (runs in the background) ---
 
     def run(self, job_id: uuid.UUID) -> None:
+        # Bound how many documents are processed at once in this process (OCR is CPU/memory heavy);
+        # further jobs wait here, in QUEUED, until a slot frees up.
+        with _job_slots(self.config.max_concurrent_jobs):
+            self._run(job_id)
+
+    def _run(self, job_id: uuid.UUID) -> None:
         with self.session_factory() as db:
             job = db.get(ProcessingJob, job_id)
             if job is None or job.status != JobStatus.QUEUED:

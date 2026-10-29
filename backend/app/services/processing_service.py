@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
+from app.core.workspace import LOCAL_WORKSPACE
 from app.db.base import utcnow
 from app.models import Document, JobStatus, ProcessingJob
 from app.services.jobs import JobRunner
@@ -25,16 +26,27 @@ def _aware(value: datetime) -> datetime:
 
 class ProcessingService:
     def __init__(
-        self, db: Session, runner: JobRunner, processor: DocumentProcessor, *, stale_after_seconds: int
+        self,
+        db: Session,
+        runner: JobRunner,
+        processor: DocumentProcessor,
+        *,
+        stale_after_seconds: int,
+        workspace_id: str = LOCAL_WORKSPACE,
     ) -> None:
         self.db = db
+        self.workspace_id = workspace_id
         self.runner = runner
         self.processor = processor
         self.stale_after = timedelta(seconds=stale_after_seconds)
 
     def enqueue(self, document_id: uuid.UUID) -> ProcessingJob:
         # Row lock (PostgreSQL) so two concurrent requests can't both queue a job.
-        document = self.db.scalar(select(Document).where(Document.id == document_id).with_for_update())
+        document = self.db.scalar(
+            select(Document)
+            .where(Document.id == document_id, Document.workspace_id == self.workspace_id)
+            .with_for_update()
+        )
         if document is None:
             raise NotFoundError("Document not found.", code="document_not_found")
 
@@ -63,7 +75,9 @@ class ProcessingService:
         return job
 
     def status(self, document_id: uuid.UUID) -> tuple[Document, ProcessingJob | None]:
-        document = self.db.get(Document, document_id)
+        document = self.db.scalar(
+            select(Document).where(Document.id == document_id, Document.workspace_id == self.workspace_id)
+        )
         if document is None:
             raise NotFoundError("Document not found.", code="document_not_found")
         return document, self.latest_job(document_id)

@@ -15,7 +15,8 @@ from typing import BinaryIO
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
+from app.core.workspace import LOCAL_WORKSPACE
 from app.models import Document, DocumentPage, DocumentStatus
 from app.schemas.document import DocumentFilters, DocumentSort
 from app.services.storage import ORIGINALS, StorageBackend
@@ -29,14 +30,31 @@ def _escape_like(term: str) -> str:
 
 
 class DocumentService:
-    def __init__(self, db: Session, storage: StorageBackend, *, max_upload_size: int) -> None:
+    def __init__(
+        self,
+        db: Session,
+        storage: StorageBackend,
+        *,
+        max_upload_size: int,
+        workspace_id: str = LOCAL_WORKSPACE,
+        max_documents: int = 0,
+    ) -> None:
         self.db = db
         self.storage = storage
         self.max_upload_size = max_upload_size
+        self.workspace_id = workspace_id  # every query below is scoped to this workspace
+        self.max_documents = max_documents
 
     # --- Commands ---
 
     def upload(self, *, filename: str | None, content_type: str | None, stream: BinaryIO) -> Document:
+        if self.max_documents and self._count() >= self.max_documents:
+            raise ConflictError(
+                f"This demo workspace holds at most {self.max_documents} documents. "
+                "Delete some to upload more.",
+                code="workspace_limit_reached",
+                details={"max_documents": self.max_documents},
+            )
         validated = validate_upload(
             filename=filename,
             declared_mime_type=content_type,
@@ -57,6 +75,7 @@ class DocumentService:
             size_bytes=validated.size_bytes,
             sha256=validated.sha256,
             status=DocumentStatus.UPLOADED,
+            workspace_id=self.workspace_id,
         )
         try:
             self.db.add(document)
@@ -103,6 +122,13 @@ class DocumentService:
             ),
         )
 
+    def delete_all(self) -> int:
+        """Delete every document in this workspace (the "clear my demo data" action)."""
+        ids = self.db.scalars(select(Document.id).where(Document.workspace_id == self.workspace_id)).all()
+        for document_id in ids:
+            self.delete(document_id)
+        return len(ids)
+
     def list(self, filters: DocumentFilters) -> tuple[list[Document], int]:
         query = self._filtered(select(Document), filters)
         total = self.db.scalar(self._filtered(select(func.count()).select_from(Document), filters)) or 0
@@ -132,13 +158,25 @@ class DocumentService:
     # --- Helpers ---
 
     def _get(self, document_id: uuid.UUID, options: tuple = ()) -> Document:
-        document = self.db.scalar(select(Document).where(Document.id == document_id).options(*options))
+        document = self.db.scalar(
+            select(Document)
+            .where(Document.id == document_id, Document.workspace_id == self.workspace_id)
+            .options(*options)
+        )
         if document is None:
             raise NotFoundError("Document not found.", code="document_not_found")
         return document
 
-    @staticmethod
-    def _filtered(query: Select, filters: DocumentFilters) -> Select:
+    def _count(self) -> int:
+        return (
+            self.db.scalar(
+                select(func.count()).select_from(Document).where(Document.workspace_id == self.workspace_id)
+            )
+            or 0
+        )
+
+    def _filtered(self, query: Select, filters: DocumentFilters) -> Select:
+        query = query.where(Document.workspace_id == self.workspace_id)
         if filters.q and (term := filters.q.strip()):
             pattern = f"%{_escape_like(term)}%"
             query = query.where(

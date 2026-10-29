@@ -44,6 +44,11 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
+    # Anonymous demo workspace: SHA-256 of the browser's X-Workspace-Token ("local" in development).
+    # Every query is scoped by it, so visitors never see each other's documents.
+    workspace_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="local", server_default="local", index=True
+    )
 
     # --- File ---
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)

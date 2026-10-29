@@ -4,7 +4,7 @@ FastAPI service for DocuMind. It's a modular monolith: thin HTTP routes call
 services, and the services reach PostgreSQL, file storage, OCR and the LLM
 through interfaces.
 
-> **Status:** Phase 4. Uploads are validated, stored and processed in the
+> **Status:** MVP (Phases 1–4, plus the frontend integration, analytics and public-demo safeguards). Phase 4 details: Uploads are validated, stored and processed in the
 > background. PDF text layers are read with PyMuPDF; scanned pages and images
 > are preprocessed with OpenCV and OCR'd with Tesseract. Then the backend
 > classifies the document, extracts invoice/receipt fields and line items
@@ -26,6 +26,9 @@ through interfaces.
 | GET | `/api/documents/{id}/extraction` | Fields with status/confidence/provenance, line items, warnings. 409 until processed |
 | PATCH | `/api/documents/{id}/extraction` | Correct fields / document type / line items, then re-validate. 422 on invalid input (nothing applied) |
 | GET | `/api/documents/{id}/file` | Streams the original file |
+| DELETE | `/api/documents` | Deletes every document in the caller's workspace |
+| GET | `/api/analytics/overview` · `/spending` · `/vendors` | Counts and per-currency totals from stored documents |
+| GET | `/api/meta` | Public limits (demo mode, retention, upload size, …) for the UI |
 | DELETE | `/api/documents/{id}` | 204. Removes the rows (cascade), the stored file and the previews |
 
 ### Processing
@@ -268,3 +271,25 @@ python scripts/generate_samples.py
 ```
 
 The same texts drive the automated tests (`tests/invoice_texts.py`).
+
+## Workspaces and public-demo safeguards
+
+Every document belongs to a **workspace**:
+- The browser sends a random `X-Workspace-Token` (32–128 chars).
+- The server stores only its SHA-256 and filters every query by it.
+- Another workspace's document returns 404, exactly like one that doesn't exist.
+- Without the header, requests use the `local` workspace, unless
+  `DEMO_MODE=true`, which makes the header mandatory (401 `workspace_required`).
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `DEMO_MODE` | `false` | Require the workspace header |
+| `RETENTION_HOURS` | `0` | Auto-delete documents older than this (swept every 15 min) |
+| `UPLOAD_RATE_LIMIT_PER_HOUR` | `0` | Uploads + reprocessing per client IP (429 `rate_limited`) |
+| `MAX_DOCUMENTS_PER_WORKSPACE` | `0` | 409 `workspace_limit_reached` beyond this |
+| `MAX_CONCURRENT_JOBS` | `2` | Documents processed at once |
+| `STORAGE_BACKEND` | `local` | `database` stores file bytes in PostgreSQL (no persistent disk needed) |
+| `TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` for client IPs (behind a proxy only) |
+| `STATIC_DIR` | — | Serve the built SPA from this directory |
+
+Deployment: see [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md).

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_ocr_service
 from app.core.config import Settings, get_settings
 from app.db.session import check_database, get_db
-from app.schemas.health import ComponentHealth, HealthResponse
+from app.schemas.health import ComponentHealth, HealthResponse, MetaResponse
 from app.services.ocr import OCRService, OCRUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -52,4 +52,24 @@ def health(
         version=settings.app_version,
         environment=settings.environment,
         components=components,
+    )
+
+
+@router.get(
+    "/meta",
+    response_model=MetaResponse,
+    summary="Public server limits",
+    description="Demo mode, retention, upload limits and accepted file types, for display in the UI.",
+)
+def meta(settings: Annotated[Settings, Depends(get_settings)]) -> MetaResponse:
+    return MetaResponse(
+        version=settings.app_version,
+        demo_mode=settings.demo_mode,
+        retention_hours=settings.retention_hours,
+        max_upload_bytes=settings.max_upload_size,
+        max_pages=settings.max_pages,
+        max_documents_per_workspace=settings.max_documents_per_workspace,
+        upload_rate_limit_per_hour=settings.upload_rate_limit_per_hour,
+        accepted_types=["application/pdf", "image/png", "image/jpeg"],
+        date_order=settings.date_order,
     )

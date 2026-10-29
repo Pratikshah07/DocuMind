@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
+from app.core.workspace import LOCAL_WORKSPACE
 from app.models import (
     Document,
     DocumentStatus,
@@ -298,9 +299,10 @@ class ExtractionUpdate:
 
 
 class ExtractionService:
-    def __init__(self, db: Session, config: ExtractionConfig) -> None:
+    def __init__(self, db: Session, config: ExtractionConfig, *, workspace_id: str = LOCAL_WORKSPACE) -> None:
         self.db = db
         self.config = config
+        self.workspace_id = workspace_id
 
     def get(self, document_id: uuid.UUID) -> tuple[Document, ExtractionOutcome]:
         document = self._load(document_id)
@@ -394,7 +396,7 @@ class ExtractionService:
     def _load(self, document_id: uuid.UUID, *, for_update: bool = False) -> Document:
         query = (
             select(Document)
-            .where(Document.id == document_id)
+            .where(Document.id == document_id, Document.workspace_id == self.workspace_id)
             .options(
                 selectinload(Document.fields),
                 selectinload(Document.line_items),

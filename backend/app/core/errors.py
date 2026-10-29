@@ -71,6 +71,16 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class UnauthorizedError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "unauthorized"
+
+
+class RateLimitedError(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "rate_limited"
+
+
 class ServiceUnavailableError(AppError):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     code = "service_unavailable"

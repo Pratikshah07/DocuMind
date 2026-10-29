@@ -1,42 +1,33 @@
-import { useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  CircleAlert,
-  CloudUpload,
-  FileText,
-  LoaderCircle,
-  RotateCcw,
-  X,
-} from "lucide-react";
-import { Link } from "wouter";
-import { api } from "@/services/api";
+import { useRef, useState } from 'react';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUpRight, Check, CircleAlert, CloudUpload, FileText, LoaderCircle, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { Link } from 'wouter';
+import { PageHeader, StatusBadge } from '@/components/documind';
+import { ApiError, errorMessage } from '@/lib/api-client';
+import { formatBytes, STAGES, STATUS_LABEL } from '@/lib/format';
+import { notify } from '@/lib/ui';
+import { api, isInProgress, queryKeys, type DocumentStatus } from '@/services/api';
 
-const acceptedExtensions = /\.(pdf|png|jpe?g)$/i;
-const stages = [
-  { label: "Uploading", percent: 12 },
-  { label: "Processing", percent: 28 },
-  { label: "OCR", percent: 46 },
-  { label: "Extracting", percent: 68 },
-  { label: "Validating", percent: 88 },
-  { label: "Completed", percent: 100 },
-] as const;
+const EXTENSIONS = /\.(pdf|png|jpe?g)$/i;
+const SAMPLES_URL = 'https://github.com/Pratikshah07/DocuMind/tree/main/backend/samples';
 
 type QueueItem = {
-  id: string;
+  key: string;
   name: string;
-  stage: string;
-  percent: number;
-  state: "working" | "done" | "failed";
+  size: number;
+  documentId?: string;
+  state: 'waiting' | 'uploading' | 'uploaded' | 'rejected';
+  error?: string;
 };
 
-function pause(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function notify(message: string, kind: "success" | "error" = "success") {
-  window.dispatchEvent(
-    new CustomEvent("documind-toast", { detail: { message, kind } }),
+function StageSteps({ status }: { status: DocumentStatus }) {
+  const current = STAGES.indexOf(status);
+  return (
+    <div className="mt-2 flex items-center gap-1" aria-label={`Stage: ${STATUS_LABEL[status]}`}>
+      {STAGES.map((stage, i) => (
+        <span key={stage} title={STATUS_LABEL[stage]} className={`h-1.5 flex-1 rounded-full ${current === -1 || i < current ? 'bg-primary' : i === current ? 'animate-pulse bg-primary/60' : 'bg-muted'}`} />
+      ))}
+    </div>
   );
 }
 
@@ -46,291 +37,149 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [error, setError] = useState("");
+  const meta = useQuery({ queryKey: queryKeys.meta, queryFn: api.meta, staleTime: Infinity });
+  const maxBytes = meta.data?.max_upload_bytes ?? 15 * 1024 * 1024;
 
-  const updateQueueItem = (id: string, patch: Partial<QueueItem>) => {
-    setQueue((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
-    );
-  };
+  // Poll each uploaded document's real status until it reaches a terminal state.
+  const statuses = useQueries({
+    queries: queue
+      .filter((item) => item.documentId)
+      .map((item) => ({
+        queryKey: queryKeys.status(item.documentId!),
+        queryFn: () => api.getStatus(item.documentId!),
+        refetchInterval: (query: { state: { data?: { status: DocumentStatus } } }) =>
+          query.state.data && !isInProgress(query.state.data.status) ? false : 2000,
+      })),
+  });
+  const statusById = new Map(statuses.filter((s) => s.data).map((s) => [s.data!.document_id, s.data!]));
 
-  const startUploads = async (fileList: FileList | File[]) => {
-    const files = Array.from(fileList);
-    if (files.length === 0) return;
-    const supported = files.filter((file) => acceptedExtensions.test(file.name));
-    const rejected = files.length - supported.length;
-    if (rejected > 0) {
-      setError(
-        `${rejected} file${rejected === 1 ? "" : "s"} skipped. Choose PDF, PNG or JPG files.`,
-      );
-    } else {
-      setError("");
-    }
-    if (supported.length === 0) return;
+  const update = (key: string, patch: Partial<QueueItem>) => setQueue((items) => items.map((i) => (i.key === key ? { ...i, ...patch } : i)));
 
+  const startUploads = async (files: File[]) => {
+    if (busy || files.length === 0) return; // guards double drops/clicks
+    const items: QueueItem[] = files.map((file, i) => {
+      const key = `${Date.now()}-${i}-${file.name}`;
+      if (!EXTENSIONS.test(file.name)) return { key, name: file.name, size: file.size, state: 'rejected', error: 'Unsupported file type. Use PDF, PNG or JPG.' };
+      if (file.size > maxBytes) return { key, name: file.name, size: file.size, state: 'rejected', error: `Larger than the ${formatBytes(maxBytes)} limit.` };
+      if (file.size === 0) return { key, name: file.name, size: 0, state: 'rejected', error: 'The file is empty.' };
+      return { key, name: file.name, size: file.size, state: 'waiting' };
+    });
+    setQueue((current) => [...items, ...current]);
     setBusy(true);
+    let uploaded = 0;
     try {
-      const documents = await api.addDocuments(supported);
-      const newItems = documents.map((document) => ({
-        id: document.id,
-        name: document.name,
-        stage: "Queued",
-        percent: 0,
-        state: "working" as const,
-      }));
-      setQueue((current) => [...newItems, ...current]);
-      await queryClient.invalidateQueries({ queryKey: ["documents"] });
-      await queryClient.invalidateQueries({ queryKey: ["analytics"] });
-
-      for (const document of documents) {
+      for (const [index, item] of items.entries()) {
+        if (item.state !== 'waiting') continue;
+        update(item.key, { state: 'uploading' });
         try {
-          for (const stage of stages) {
-            updateQueueItem(document.id, {
-              stage: stage.label,
-              percent: stage.percent,
-              state: "working",
-            });
-            await pause(280);
-            if (stage.label === "Completed") {
-              await api.finishDemoProcessing(document.id);
-              updateQueueItem(document.id, { state: "done" });
-            }
+          const response = await api.upload(files[index]);
+          update(item.key, { state: 'uploaded', documentId: response.id });
+          uploaded += 1;
+        } catch (error) {
+          update(item.key, { state: 'rejected', error: errorMessage(error) });
+          if (error instanceof ApiError && error.code === 'rate_limited') {
+            items.slice(index + 1).filter((i) => i.state === 'waiting').forEach((i) => update(i.key, { state: 'rejected', error: 'Not uploaded: rate limit reached.' }));
+            break;
           }
-        } catch {
-          updateQueueItem(document.id, {
-            stage: "Failed",
-            state: "failed",
-          });
         }
       }
-
-      await queryClient.invalidateQueries({ queryKey: ["documents"] });
-      await queryClient.invalidateQueries({ queryKey: ["analytics"] });
-      if (rejected < files.length) {
-        notify(
-          `${supported.length} file${supported.length === 1 ? "" : "s"} added to the local demo.`,
-        );
-      }
-    } catch {
-      setError("The demo could not add those filenames to browser storage.");
-      notify("Upload could not be simulated. Try again.", "error");
     } finally {
       setBusy(false);
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      if (uploaded) notify(`${uploaded} file${uploaded === 1 ? '' : 's'} uploaded. Processing has started.`);
     }
   };
 
   const onDrop = (event: React.DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
     setDragging(false);
-    if (!busy) void startUploads(event.dataTransfer.files);
+    void startUploads(Array.from(event.dataTransfer.files));
   };
 
   return (
     <div className="page-enter">
-      <div className="mb-7">
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-[.14em] text-primary">
-          Bring in a file
-        </p>
-        <h1
-          className="text-[27px] font-semibold tracking-[-.035em] sm:text-[31px]"
-          data-testid="heading-page"
-        >
-          Upload documents
-        </h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Add invoices and receipts to explore the document review workflow.
-        </p>
-      </div>
+      <PageHeader eyebrow="Bring in a file" title="Upload documents" description="Invoices and receipts as PDF, PNG or JPG. Text is read from the PDF, or with OCR for scans and photos, then fields are extracted and validated." />
 
       <section className="rounded-md border border-border bg-card p-4 sm:p-6">
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-          multiple
-          className="sr-only"
-          onChange={(event) => {
-            if (event.target.files) void startUploads(event.target.files);
-            event.target.value = "";
-          }}
-          data-testid="input-upload-files"
-        />
+        <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" multiple className="sr-only" onChange={(e) => { void startUploads(Array.from(e.target.files ?? [])); e.target.value = ''; }} data-testid="input-upload-files" />
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget === event.target) setDragging(false);
-          }}
+          onDragEnter={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}
           onDrop={onDrop}
           disabled={busy}
-          className={`flex min-h-[280px] w-full flex-col items-center justify-center rounded-sm border border-dashed px-5 py-9 text-center transition-colors disabled:cursor-wait disabled:opacity-70 ${dragging ? "border-primary bg-accent/60" : "border-border bg-background hover:border-primary/60 hover:bg-muted/30"}`}
+          className={`flex min-h-[260px] w-full flex-col items-center justify-center rounded-sm border border-dashed px-5 py-9 text-center transition-colors disabled:cursor-wait disabled:opacity-70 ${dragging ? 'border-primary bg-accent/60' : 'border-border bg-background hover:border-primary/60 hover:bg-muted/30'}`}
           aria-label="Choose or drop invoice and receipt files"
           data-testid="dropzone-upload"
         >
-          <span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-primary">
-            {busy ? (
-              <LoaderCircle size={22} className="animate-spin" />
-            ) : (
-              <CloudUpload size={22} />
-            )}
-          </span>
-          <span className="mt-4 text-sm font-semibold">
-            {dragging ? "Drop files to add them" : "Drop files here or browse"}
-          </span>
-          <span className="mt-2 text-xs text-muted-foreground">
-            Upload multiple documents at once
-          </span>
-          <span className="mt-4 flex flex-wrap justify-center gap-2">
-            {["PDF", "PNG", "JPG", "JPEG"].map((format) => (
-              <span
-                key={format}
-                className="rounded-sm border border-border bg-card px-2 py-1 text-[9px] font-semibold text-muted-foreground"
-              >
-                {format}
-              </span>
-            ))}
-          </span>
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-primary">{busy ? <LoaderCircle size={22} className="animate-spin" /> : <CloudUpload size={22} />}</span>
+          <span className="mt-4 text-sm font-semibold">{busy ? 'Uploading…' : dragging ? 'Drop files to upload them' : 'Drop files here or browse'}</span>
+          <span className="mt-2 text-xs text-muted-foreground">Up to {formatBytes(maxBytes)} each{meta.data ? ` · up to ${meta.data.max_pages} pages` : ''}</span>
+          <span className="mt-4 flex flex-wrap justify-center gap-2">{['PDF', 'PNG', 'JPG', 'JPEG'].map((f) => <span key={f} className="rounded-sm border border-border bg-card px-2 py-1 text-[9px] font-semibold text-muted-foreground">{f}</span>)}</span>
         </button>
 
-        <div className="mt-4 flex items-start gap-2 rounded-sm border border-[#e6dfce] bg-[#faf8f1] p-3 text-[10px] leading-5 text-muted-foreground">
-          <CircleAlert size={14} className="mt-0.5 shrink-0 text-[#927342]" />
+        <div className="mt-4 flex items-start gap-2 rounded-sm border border-[#e6dfce] bg-[#faf8f1] p-3 text-[11px] leading-5 text-muted-foreground dark:border-border dark:bg-muted/40">
+          <ShieldCheck size={15} className="mt-0.5 shrink-0 text-primary" />
           <span>
-            This is a local demo. Files are not uploaded to a server or read by
-            OCR; only their filenames are saved in this browser, and extracted
-            values are illustrative.
+            {meta.data?.demo_mode
+              ? `Public demo: please upload only sample or synthetic documents, not real personal or financial records. Your uploads are visible only in this browser and are deleted automatically after ${meta.data.retention_hours} hours.`
+              : 'Files are stored on this DocuMind server and processed there.'}{' '}
+            Need a file? <a href={SAMPLES_URL} target="_blank" rel="noreferrer" className="font-semibold text-primary underline" data-testid="link-samples">Download synthetic samples</a>.
           </span>
         </div>
-
-        {error && (
-          <div
-            className="mt-4 flex items-start gap-2 rounded-sm border border-red-200 bg-red-50 p-3 text-xs text-red-800"
-            role="alert"
-            data-testid="status-upload-error"
-          >
-            <CircleAlert size={14} className="mt-0.5 shrink-0" />
-            {error}
-            <button
-              type="button"
-              onClick={() => setError("")}
-              className="ml-auto"
-              aria-label="Dismiss upload error"
-              data-testid="button-dismiss-upload-error"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
       </section>
 
       <section className="mt-5 rounded-md border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-4 sm:px-5">
-          <div>
-            <h2 className="text-sm font-semibold">Upload queue</h2>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {queue.length > 0
-                ? "Illustrative processing status for this browser session."
-                : "Your selected files will appear here."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {queue.some((item) => item.state === "done") && (
-              <button
-                type="button"
-                onClick={() =>
-                  setQueue((current) =>
-                    current.filter((item) => item.state !== "done"),
-                  )
-                }
-                className="text-[10px] font-semibold text-muted-foreground hover:text-foreground"
-                data-testid="button-clear-completed"
-              >
-                Clear completed
-              </button>
-            )}
-            <span className="rounded-sm border border-border px-2 py-1 text-[9px] text-muted-foreground">
-              {queue.length} files
-            </span>
-          </div>
+          <div><h2 className="text-sm font-semibold">This session's uploads</h2><p className="mt-1 text-[10px] text-muted-foreground">{queue.length ? 'Live status from the server. You can leave this page; processing continues.' : 'Files you upload will appear here.'}</p></div>
+          {queue.some((i) => i.state === 'rejected' || (i.documentId && !isInProgress(statusById.get(i.documentId)?.status ?? 'UPLOADED'))) && (
+            <button type="button" onClick={() => setQueue((items) => items.filter((i) => i.state !== 'rejected' && (!i.documentId || isInProgress(statusById.get(i.documentId)?.status ?? 'UPLOADED'))))} className="text-[10px] font-semibold text-muted-foreground hover:text-foreground" data-testid="button-clear-completed">Clear finished</button>
+          )}
         </div>
-
         {queue.length === 0 ? (
-          <div className="p-7 text-center">
-            <FileText className="mx-auto text-muted-foreground" size={21} />
-            <p className="mt-2 text-xs font-medium">No uploads in this session</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              Choose supported files to see each demo processing stage.
-            </p>
-          </div>
+          <div className="p-7 text-center"><FileText className="mx-auto text-muted-foreground" size={21} /><p className="mt-2 text-xs font-medium">No uploads in this session</p></div>
         ) : (
           <div className="divide-y divide-border">
-            {queue.map((item) => (
-              <div
-                key={item.id}
-                className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
-                data-testid={`upload-item-${item.id}`}
-              >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-sm border border-border bg-background text-primary">
-                  {item.state === "done" ? (
-                    <Check size={16} />
-                  ) : item.state === "failed" ? (
-                    <CircleAlert size={16} className="text-red-700" />
-                  ) : (
-                    <FileText size={16} />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-semibold">{item.name}</div>
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span>{item.stage}</span>
-                    <span>·</span>
-                    <span>{item.percent}%</span>
+            {queue.map((item) => {
+              const status = item.documentId ? statusById.get(item.documentId) : undefined;
+              const failed = item.state === 'rejected' || status?.status === 'FAILED';
+              const done = status && !isInProgress(status.status);
+              return (
+                <div key={item.key} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5" data-testid={`upload-item-${item.documentId ?? item.key}`}>
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-sm border border-border bg-background text-primary">
+                    {failed ? <CircleAlert size={16} className="text-red-700" /> : done ? <Check size={16} /> : <LoaderCircle size={16} className="animate-spin" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-semibold">{item.name}</div>
+                    <div className="mt-1 text-[10px] text-muted-foreground" data-testid="text-upload-stage">
+                      {item.state === 'waiting' && 'Waiting to upload'}
+                      {item.state === 'uploading' && `Uploading ${formatBytes(item.size)}…`}
+                      {item.state === 'rejected' && <span className="text-red-700 dark:text-red-300">{item.error}</span>}
+                      {item.state === 'uploaded' && (status ? (status.status === 'FAILED' ? <span className="text-red-700 dark:text-red-300">{status.error_message}</span> : STATUS_LABEL[status.status]) : 'Uploaded · waiting for status')}
+                    </div>
+                    {status && isInProgress(status.status) && <StageSteps status={status.status} />}
                   </div>
-                  <div
-                    className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
-                    role="progressbar"
-                    aria-label={`${item.name} progress`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={item.percent}
-                  >
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${item.state === "failed" ? "bg-red-600" : "bg-primary"}`}
-                      style={{ width: `${item.percent}%` }}
-                    />
+                  <div className="flex shrink-0 items-center gap-3">
+                    {status && <StatusBadge status={status.status} />}
+                    {item.documentId && (
+                      <Link href={`/app/documents/${item.documentId}`} className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary" data-testid={`link-open-${item.documentId}`}>Open <ArrowUpRight size={12} /></Link>
+                    )}
+                    {item.state === 'rejected' && (
+                      <button type="button" aria-label="Dismiss" onClick={() => setQueue((items) => items.filter((i) => i.key !== item.key))} className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+                    )}
                   </div>
                 </div>
-                <span
-                  className={`shrink-0 text-[10px] font-semibold ${item.state === "done" ? "text-[#386f58]" : item.state === "failed" ? "text-red-700" : "text-muted-foreground"}`}
-                  data-testid={`status-upload-${item.id}`}
-                >
-                  {item.state === "done"
-                    ? "Completed"
-                    : item.state === "failed"
-                      ? "Needs retry"
-                      : "In progress"}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
 
       <div className="mt-5 flex justify-end">
-        <Link
-          href="/app/documents"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline"
-          data-testid="link-upload-documents"
-        >
-          View documents <RotateCcw size={13} />
-        </Link>
+        <Link href="/app/documents" className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline" data-testid="link-upload-documents">View all documents <RotateCcw size={13} /></Link>
       </div>
     </div>
   );

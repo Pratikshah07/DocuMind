@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from app.api.deps import ProcessingServiceDep
+from app.api.deps import ProcessingServiceDep, RateLimited
 from app.core.errors import error_responses
 from app.models import Document, ProcessingJob
 from app.schemas.processing import DocumentStatusResponse, ProcessingJobOut
@@ -30,7 +30,8 @@ def _status(document: Document, job: ProcessingJob | None) -> DocumentStatusResp
         "Queues a new processing attempt. Used for retries after `FAILED` and for reprocessing. "
         "Returns 409 `already_processing` while an attempt is queued or running."
     ),
-    responses=error_responses(404, 409, 422),
+    responses=error_responses(401, 404, 409, 422, 429),
+    dependencies=[RateLimited],
 )
 def process_document(document_id: uuid.UUID, service: ProcessingServiceDep) -> DocumentStatusResponse:
     job = service.enqueue(document_id)

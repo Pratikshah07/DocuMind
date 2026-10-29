@@ -41,8 +41,30 @@ class Settings(BaseSettings):
     database_connect_timeout: int = 5  # seconds
 
     # --- Storage ---
+    # "local": files under STORAGE_PATH (needs a persistent disk in production).
+    # "database": file bytes in PostgreSQL (hosts with an ephemeral filesystem, e.g. Render free tier).
+    storage_backend: Literal["local", "database"] = "local"
     storage_path: Path = BACKEND_DIR / "storage"
     max_upload_size: int = 15 * 1024 * 1024  # bytes
+
+    # --- Public demo safeguards ---
+    # When true, every request must carry an X-Workspace-Token header; each token is a private,
+    # anonymous workspace (visitors never see each other's documents). When false (local
+    # development), requests without the header share the "local" workspace.
+    demo_mode: bool = False
+    # Documents older than this are deleted automatically (0 = keep forever).
+    retention_hours: int = Field(default=0, ge=0)
+    # Uploads per client IP per hour (0 = unlimited) and documents per workspace (0 = unlimited).
+    upload_rate_limit_per_hour: int = Field(default=0, ge=0)
+    max_documents_per_workspace: int = Field(default=0, ge=0)
+    # Documents processed at the same time (OCR is CPU/memory heavy).
+    max_concurrent_jobs: int = Field(default=2, ge=1)
+    # Trust X-Forwarded-For for the client IP (only behind a reverse proxy, e.g. Render).
+    trust_proxy_headers: bool = False
+
+    # --- Frontend ---
+    # Directory with the built SPA (frontend/dist). When set, the API also serves the UI.
+    static_dir: Path | None = None
 
     # --- Processing (PDF parsing, preprocessing, OCR) ---
     max_pages: int = 50  # documents with more pages are rejected (FAILED: too_many_pages)
@@ -88,6 +110,15 @@ class Settings(BaseSettings):
     def _split_steps(cls, value: object) -> object:
         if isinstance(value, str):
             return [step.strip().lower() for step in value.split(",") if step.strip()]
+        return value
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _psycopg_driver(cls, value: str) -> str:
+        # Hosting providers hand out postgres:// or postgresql:// URLs; SQLAlchemy needs the driver.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
         return value
 
     @field_validator("storage_path", mode="after")

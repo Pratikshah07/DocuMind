@@ -21,6 +21,12 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          // Long-lived vendor chunks: charts and React change far less often than app code.
+          manualChunks: { charts: ['recharts'], react: ['react', 'react-dom', 'wouter', '@tanstack/react-query'] },
+        },
+      },
     },
     server: {
       port,

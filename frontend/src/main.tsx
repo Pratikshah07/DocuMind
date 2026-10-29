@@ -2,8 +2,11 @@ import { createRoot } from 'react-dom/client';
 
 import App from './App';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { applyTheme, readTheme } from '@/lib/ui';
 
 import './index.css';
+
+applyTheme(readTheme()); // before first paint, so dark mode doesn't flash
 
 createRoot(document.getElementById('root')!, {
   // Keeps caught errors off reportError(), which would raise the dev overlay.

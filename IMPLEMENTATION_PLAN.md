@@ -14,13 +14,13 @@
 | 2 | Upload, validation, storage, document model, initial migration | ✅ Done |
 | 3 | PDF/image processing, preprocessing, OCR | ✅ Done |
 | 4 | Classification, extraction, validation, confidence | ✅ Done |
-| 5 | Frontend ↔ backend integration | ⏳ Next |
-| 6 | Analytics | — |
+| 5 | Frontend ↔ backend integration | ✅ Done (MVP) |
+| 6 | Analytics | ✅ Done (MVP: lightweight endpoints) |
 | 7 | Embeddings, vector store, retrieval | — |
 | 8 | LLM provider (Ollama), chat, source references | — |
 | 9 | Authentication (only if needed) | — |
 | 10 | Testing, security and performance review | — |
-| 11 | Docker / deployment preparation | — |
+| 11 | Docker / deployment preparation | ✅ Done (Render Blueprint) |
 | 12 | README, docs, cleanup | — |
 
 ---
@@ -395,6 +395,13 @@ upload → validate (ext + magic bytes + size) → store original → DB row (UP
 | D38 | The classification is stored as an `extracted_fields` row named `document_type` (value, confidence, method `rule`/`user`) | Keeps its confidence and provenance without a schema change |
 | D39 | `payment_method` stores only the method keyword ("VISA" → "Visa"), never card digits | Privacy: masked PANs stay out of the database |
 | D40 | No migration in Phase 4 | The 0001 schema already holds fields, provenance, line items and warnings; `alembic check` confirms no drift |
+| D41 | Public demo = anonymous per-browser workspaces (`X-Workspace-Token`, SHA-256 stored), 24 h retention, per-IP upload rate limit, per-workspace cap | Approved 2026-10-29. No accounts exist, so visitors must not see each other's uploads; this is isolation, not authentication |
+| D42 | Deploy target: Render free tier via `render.yaml` (Docker + free Postgres) | Approved 2026-10-29. Free, GitHub-connected; needs the owner's Render login |
+| D43 | `STORAGE_BACKEND=database`: file bytes in PostgreSQL (`stored_files`) behind the existing `StorageBackend` interface | Render free has no persistent disk; retention and size caps keep the table small |
+| D44 | One container serves the API and the built SPA (same origin) | No CORS or second deployment; the frontend uses relative `/api` |
+| D45 | Analytics are aggregated per currency in Python over the workspace's rows; only COMPLETED/NEEDS_REVIEW documents count toward money | Never mixes currencies; workspaces are capped, so this is cheap and portable |
+| D46 | "Ask your data" stays visible but clearly marked *Soon* with no fake answers | The brief forbids fake AI; RAG is out of MVP scope |
+| D47 | Upload/reprocess limiter is in-memory, single instance; processing concurrency bounded by a process-wide semaphore | Matches the single-instance free tier; documented as a limitation |
 
 ## Phase log
 
@@ -661,3 +668,79 @@ now has fields.
 
 **Manual setup:** none beyond Phase 3. No migration. New settings have
 defaults, so the existing `.env` keeps working.
+
+### MVP release (2026-10-29): frontend integration, analytics, public demo, deployment
+
+**Backend**
+- **Migration `0002`:**
+  - `documents.workspace_id` (server default `local`, so existing rows
+    upgrade cleanly).
+  - A `stored_files` table. Verified on Postgres with an existing row,
+    plus a down/up round trip.
+- **Workspace isolation (D41):** every document, processing, extraction and
+  analytics query is scoped. There is also `DELETE /api/documents` (clear my
+  workspace).
+- **Demo safeguards:**
+  - `DEMO_MODE`, `RETENTION_HOURS` (background sweep),
+    `UPLOAD_RATE_LIMIT_PER_HOUR`, `MAX_DOCUMENTS_PER_WORKSPACE`.
+  - `MAX_CONCURRENT_JOBS` (semaphore).
+  - Security headers, and CORS allowing the workspace header.
+  - `GET /api/meta` for UI limits.
+- **`DatabaseStorage`** (D43). Analytics endpoints: `overview`, `spending`,
+  `vendors` (D45).
+- **SPA serving** from `STATIC_DIR`, with deep links falling back to
+  `index.html` and `/api/*` never shadowed. `DATABASE_URL` accepts
+  `postgres://` URLs.
+
+**Frontend** (`frontend/`, design preserved)
+- `lib/api-client.ts`: typed fetch client with the workspace token,
+  timeouts and backend error-envelope parsing.
+- `services/api.ts`: DTOs mirroring the backend schemas plus query keys. The
+  localStorage mock is gone; only the workspace key and theme remain in
+  browser storage.
+- Pages wired to real data, with loading, empty, error, processing, review
+  and failed states:
+  - **Dashboard.**
+  - **Documents:** server-side search, filters, sort and pagination;
+    polling only while documents are in progress.
+  - **Upload:** sequential multipart uploads, real stage display, no fake
+    percentages, client-side pre-checks mirroring the server.
+  - **Document detail:**
+    - real page previews, editable fields with status, confidence and
+      provenance, and editable line items
+    - 422 field errors with the user's input kept, 409 handling
+    - reprocess warning about lost corrections, delete confirmation,
+      download, JSON export
+  - **Analytics:** real, per currency, with honest notes.
+  - **Settings:** only working settings — workspace info and limits,
+    delete all, server status, theme.
+  - **Chat:** "coming soon" (D46).
+- Landing copy rewritten to describe only what exists. The illustration uses
+  the synthetic samples and has no made-up statistics.
+- Vendor chunks split, so the build has no oversized-bundle warning.
+
+**Deployment** (D42, D44)
+- Root `Dockerfile` (Node build → Python 3.12 slim + Tesseract 5),
+  `backend/docker-entrypoint.sh` (migrations, then uvicorn),
+  `.dockerignore`, `render.yaml`, and an `app` profile in
+  `docker-compose.yml`.
+- `docs/DEPLOYMENT.md`.
+
+**Verification**
+- Backend `pytest`: see the release report (SQLite and PostgreSQL), plus
+  mutation checks on workspace scoping. Ruff and `alembic check` are clean.
+- Frontend: `tsc` clean; `npm run build` OK.
+- Production image built locally and run against a *fresh* Postgres
+  database with the Render settings: migrations 0001→0002 applied; health
+  `ok` (Tesseract 5.5); SPA and deep links served; 401 without a workspace token.
+- `e2e/run_e2e.py` (Playwright, real Chromium) against that container:
+  **18/18 checks**. They cover:
+  - landing, health, empty states
+  - text PDF and scanned PDF (OCR), invalid file
+  - review warning, 422 edit error, edit persisting after reload
+  - download, real dashboard and analytics, chat marked unavailable
+  - delete, workspace isolation, mobile overflow, clean-up
+  - no unexpected console errors
+
+**Remaining for release:** the owner's Render sign-in plus "New Blueprint"
+(see docs/DEPLOYMENT.md), then the smoke test against the public URL.

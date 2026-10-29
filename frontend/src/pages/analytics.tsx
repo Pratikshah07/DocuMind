@@ -1,429 +1,128 @@
-import { useQuery } from "@tanstack/react-query";
-import { BarChart3, FileCheck2, ReceiptText, Store } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { api } from "@/services/api";
+import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { BarChart3, FileCheck2, ReceiptText, Store } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Link } from 'wouter';
+import { EmptyState, ErrorState, Metric, PageHeader } from '@/components/documind';
+import { errorMessage } from '@/lib/api-client';
+import { formatMoney, STATUS_LABEL, TYPE_LABEL } from '@/lib/format';
+import { api, queryKeys, type DocumentStatus } from '@/services/api';
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
+const chartColors = ['#316c65', '#c28c49', '#728b9c', '#bc796d', '#76977d', '#9b8e77'];
+const tooltipStyle = { borderRadius: 4, border: '1px solid #dedfd9', fontSize: 12 };
 
-const chartColors = ["#316c65", "#c28c49", "#728b9c", "#bc796d", "#76977d"];
-
-function Metric({
-  label,
-  value,
-  caption,
-  icon: Icon,
-}: {
-  label: string;
-  value: number | string;
-  caption: string;
-  icon: typeof ReceiptText;
-}) {
-  return (
-    <section
-      className="rounded-md border border-border bg-card p-4 sm:p-5"
-      data-testid={`metric-${label.toLowerCase().replaceAll(" ", "-")}`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <span className="grid h-8 w-8 place-items-center rounded-sm bg-accent text-primary">
-          <Icon size={16} />
-        </span>
-      </div>
-      <div className="mt-3 text-[25px] font-semibold tracking-[-.04em]">
-        {value}
-      </div>
-      <div className="mt-1 text-[11px] text-muted-foreground">{caption}</div>
-    </section>
-  );
-}
-
-function ChartPanel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
+function ChartPanel({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
     <section className="rounded-md border border-border bg-card">
-      <div className="px-5 pt-5">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="mt-1 text-[11px] text-muted-foreground">{description}</p>
-      </div>
+      <div className="px-5 pt-5"><h2 className="text-sm font-semibold">{title}</h2><p className="mt-1 text-[11px] text-muted-foreground">{description}</p></div>
       <div className="h-[280px] p-4">{children}</div>
     </section>
   );
 }
 
+const Empty = ({ children }: { children: ReactNode }) => <div className="grid h-full place-items-center px-6 text-center text-xs text-muted-foreground">{children}</div>;
+
 export default function AnalyticsPage() {
-  const analyticsQuery = useQuery({
-    queryKey: ["analytics"],
-    queryFn: api.analytics,
-  });
-  const documentsQuery = useQuery({
-    queryKey: ["documents"],
-    queryFn: api.listDocuments,
-  });
-  const analytics = analyticsQuery.data;
-  const documents = documentsQuery.data ?? [];
-  const invoiceDocuments = documents.filter(
-    (document) => document.type === "Invoice" && document.amount > 0,
-  );
-  const averageInvoice = invoiceDocuments.length
-    ? invoiceDocuments.reduce((sum, document) => sum + document.amount, 0) /
-      invoiceDocuments.length
-    : 0;
-  const processedCount = documents.filter(
-    (document) =>
-      document.status === "Ready" || document.status === "Review needed",
-  ).length;
-  const vendorCount = new Set(documents.map((document) => document.vendor)).size;
-  const noAnalytics =
-    !analyticsQuery.isLoading &&
-    !analyticsQuery.isError &&
-    (analytics?.documentCount ?? 0) === 0;
+  const overview = useQuery({ queryKey: queryKeys.analytics('overview'), queryFn: api.analyticsOverview });
+  const spending = useQuery({ queryKey: queryKeys.analytics('spending'), queryFn: api.analyticsSpending });
+  const vendors = useQuery({ queryKey: queryKeys.analytics('vendors'), queryFn: api.analyticsVendors });
+  const o = overview.data;
+  const loading = overview.isLoading;
+  const primary = o?.spend[0];
+  const currency = primary?.currency ?? null;
+  const otherCurrencies = (o?.spend ?? []).slice(1);
+  const monthly = (spending.data?.months ?? []).filter((m) => m.currency === currency);
+  const vendorRows = (vendors.data?.vendors ?? []).filter((v) => v.currency === currency).slice(0, 8);
+  const types = Object.entries(o?.type_counts ?? {}).filter(([, n]) => n > 0).map(([t, count]) => ({ name: TYPE_LABEL[t as keyof typeof TYPE_LABEL] ?? 'Unclassified', count }));
+  const statuses = Object.entries(o?.status_counts ?? {}).filter(([, count]) => count > 0).map(([s, count]) => ({ name: STATUS_LABEL[s as DocumentStatus] ?? s, count }));
+  const error = overview.error ?? spending.error ?? vendors.error;
 
   return (
     <div className="page-enter">
-      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-[.14em] text-primary">
-            Workspace intelligence
-          </p>
-          <h1
-            className="text-[27px] font-semibold tracking-[-.035em] sm:text-[31px]"
-            data-testid="heading-page"
-          >
-            Analytics
-          </h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            Spending patterns calculated from the saved sample documents.
-          </p>
-        </div>
-        <span className="w-fit rounded-sm border border-border bg-card px-2.5 py-1.5 text-[10px] text-muted-foreground">
-          Demo data · USD
-        </span>
-      </div>
+      <PageHeader eyebrow="Workspace intelligence" title="Analytics" description="Calculated from the values extracted from your processed documents." />
 
-      {analyticsQuery.isError && (
-        <div
-          className="mb-4 flex items-center justify-between rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-          role="alert"
-          data-testid="status-analytics-error"
-        >
-          <span>Your demo analytics could not be loaded.</span>
-          <button
-            onClick={() => {
-              void analyticsQuery.refetch();
-              void documentsQuery.refetch();
-            }}
-            className="font-semibold underline"
-            data-testid="button-analytics-retry"
-          >
-            Try again
-          </button>
-        </div>
-      )}
+      {error && <ErrorState message={errorMessage(error)} onRetry={() => { void overview.refetch(); void spending.refetch(); void vendors.refetch(); }} testid="status-analytics-error" />}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label="Total spending"
-          value={
-            analyticsQuery.isLoading || !analytics
-              ? "—"
-              : formatCurrency(analytics.totalSpend)
-          }
-          caption="Captured across sample documents"
-          icon={ReceiptText}
+      {!loading && o && o.processed === 0 ? (
+        <EmptyState
+          title="No analytics yet"
+          body={o.total_documents === 0 ? 'Analytics appear as documents are processed. Upload a few invoices or receipts to get started.' : 'Your documents are still processing (or failed). Analytics appear once at least one is processed.'}
+          action={<Link href="/app/upload" className="inline-flex items-center gap-2 rounded-sm bg-primary px-3.5 py-2.5 text-xs font-semibold text-primary-foreground">Upload documents</Link>}
         />
-        <Metric
-          label="Average invoice"
-          value={
-            analyticsQuery.isLoading || documentsQuery.isLoading || !analytics
-              ? "—"
-              : formatCurrency(averageInvoice)
-          }
-          caption="Average value per invoice"
-          icon={BarChart3}
-        />
-        <Metric
-          label="Documents processed"
-          value={documentsQuery.isLoading ? "—" : processedCount}
-          caption="Ready or waiting for review"
-          icon={FileCheck2}
-        />
-        <Metric
-          label="Vendors"
-          value={documentsQuery.isLoading ? "—" : vendorCount}
-          caption="Distinct vendors in the workspace"
-          icon={Store}
-        />
-      </div>
-
-      {noAnalytics ? (
-        <div className="mt-5 rounded-md border border-dashed border-border bg-card p-10 text-center">
-          <BarChart3 className="mx-auto text-muted-foreground" size={24} />
-          <h2 className="mt-3 text-sm font-semibold">No analytics yet</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Add demo documents to see spending and vendor patterns here.
-          </p>
-        </div>
       ) : (
         <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Total spending" value={loading ? '—' : primary ? formatMoney(primary.total, currency) : '—'} caption={primary ? `${primary.document_count} document${primary.document_count === 1 ? '' : 's'}${currency ? '' : ' with no currency found'}` : 'No totals extracted yet'} icon={ReceiptText} />
+            <Metric label="Average per document" value={loading ? '—' : primary ? formatMoney(primary.average, currency) : '—'} caption="Total ÷ documents with a total" icon={BarChart3} />
+            <Metric label="Documents processed" value={loading ? '—' : o?.processed} caption={o ? `${o.needs_review} still need review` : ''} icon={FileCheck2} />
+            <Metric label="Vendors" value={vendors.isLoading ? '—' : new Set((vendors.data?.vendors ?? []).map((v) => v.vendor)).size} caption="Distinct vendors with a total (top 10 shown)" icon={Store} />
+          </div>
+
+          {o && (o.spend_includes_needs_review > 0 || otherCurrencies.length > 0 || o.processed_without_total > 0) && (
+            <div className="mt-4 rounded-sm border border-border bg-card px-4 py-3 text-[11px] leading-5 text-muted-foreground" data-testid="analytics-notes">
+              {o.spend_includes_needs_review > 0 && <p>Includes {o.spend_includes_needs_review} document{o.spend_includes_needs_review === 1 ? '' : 's'} still marked “Review needed”; their values may change after review.</p>}
+              {otherCurrencies.length > 0 && <p>Charts show {currency ?? 'documents without a currency'}. Also processed: {otherCurrencies.map((c) => `${formatMoney(c.total, c.currency)} (${c.document_count} doc${c.document_count === 1 ? '' : 's'}${c.currency ? '' : ', currency not found'})`).join(', ')}. Currencies are never added together.</p>}
+              {o.processed_without_total > 0 && <p>{o.processed_without_total} processed document{o.processed_without_total === 1 ? ' has' : 's have'} no total and {o.processed_without_total === 1 ? 'is' : 'are'} not counted.</p>}
+            </div>
+          )}
+
           <div className="mt-5 grid gap-5 xl:grid-cols-2">
-            <ChartPanel
-              title="Monthly spending"
-              description="Total document value across the last six sample months"
-            >
-              {analyticsQuery.isLoading ? (
-                <div className="h-full animate-pulse rounded-sm bg-muted" />
-              ) : (
+            <ChartPanel title="Monthly spending" description={`By invoice date${currency ? ` · ${currency}` : ''}${spending.data?.processed_without_date ? ` · ${spending.data.processed_without_date} without a date not shown` : ''}`}>
+              {spending.isLoading ? <div className="h-full animate-pulse rounded-sm bg-muted" /> : monthly.length === 0 ? <Empty>No dated totals yet.</Empty> : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={analytics?.monthly ?? []}
-                    margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="#e8e9e4"
-                    />
-                    <XAxis
-                      dataKey="month"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fill: "#737c7d" }}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 9, fill: "#8a9090" }}
-                      tickFormatter={(value) =>
-                        `$${Math.round(value / 1000)}k`
-                      }
-                    />
-                    <Tooltip
-                      formatter={(value) => formatCurrency(Number(value))}
-                      contentStyle={{
-                        borderRadius: 4,
-                        border: "1px solid #dedfd9",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar
-                      dataKey="amount"
-                      fill="#316c65"
-                      radius={[3, 3, 0, 0]}
-                      maxBarSize={38}
-                    />
+                  <BarChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8e9e4" />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#737c7d' }} />
+                    <YAxis axisLine={false} tickLine={false} width={64} tick={{ fontSize: 9, fill: '#8a9090' }} tickFormatter={(v) => formatMoney(Number(v), null)} />
+                    <Tooltip formatter={(v) => formatMoney(Number(v), currency)} contentStyle={tooltipStyle} />
+                    <Bar dataKey="total" fill="#316c65" radius={[3, 3, 0, 0]} maxBarSize={38} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartPanel>
 
-            <ChartPanel
-              title="Spending by vendor"
-              description="Highest-value vendors in the sample workspace"
-            >
-              {analyticsQuery.isLoading ? (
-                <div className="h-full animate-pulse rounded-sm bg-muted" />
-              ) : !analytics?.vendors.length ? (
-                <div className="grid h-full place-items-center text-xs text-muted-foreground">
-                  No vendor values yet.
-                </div>
-              ) : (
+            <ChartPanel title="Spending by vendor" description={`Highest totals${currency ? ` · ${currency}` : ''}`}>
+              {vendors.isLoading ? <div className="h-full animate-pulse rounded-sm bg-muted" /> : vendorRows.length === 0 ? <Empty>No vendor totals yet.</Empty> : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={analytics.vendors}
-                    layout="vertical"
-                    margin={{ top: 0, right: 20, left: 8, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      horizontal={false}
-                      stroke="#e8e9e4"
-                    />
-                    <XAxis
-                      type="number"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 9, fill: "#8a9090" }}
-                      tickFormatter={(value) => `$${Math.round(value / 1000)}k`}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={112}
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 9, fill: "#737c7d" }}
-                    />
-                    <Tooltip
-                      formatter={(value) => formatCurrency(Number(value))}
-                      contentStyle={{
-                        borderRadius: 4,
-                        border: "1px solid #dedfd9",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar
-                      dataKey="amount"
-                      fill="#316c65"
-                      radius={[0, 3, 3, 0]}
-                      maxBarSize={22}
-                    />
+                  <BarChart data={vendorRows} layout="vertical" margin={{ top: 0, right: 20, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e8e9e4" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#8a9090' }} tickFormatter={(v) => formatMoney(Number(v), null)} />
+                    <YAxis type="category" dataKey="vendor" width={120} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#737c7d' }} />
+                    <Tooltip formatter={(v) => formatMoney(Number(v), currency)} contentStyle={tooltipStyle} />
+                    <Bar dataKey="total" fill="#316c65" radius={[0, 3, 3, 0]} maxBarSize={22} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartPanel>
 
-            <ChartPanel
-              title="Spending by category"
-              description="Document totals grouped by assigned category"
-            >
-              {analyticsQuery.isLoading ? (
-                <div className="h-full animate-pulse rounded-sm bg-muted" />
-              ) : !analytics?.categories.length ? (
-                <div className="grid h-full place-items-center text-xs text-muted-foreground">
-                  No category values yet.
-                </div>
-              ) : (
+            <ChartPanel title="Processing status" description="All documents in this workspace">
+              {loading ? <div className="h-full animate-pulse rounded-sm bg-muted" /> : statuses.length === 0 ? <Empty>No documents yet.</Empty> : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={analytics.categories}
-                    layout="vertical"
-                    margin={{ top: 0, right: 20, left: 8, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      horizontal={false}
-                      stroke="#e8e9e4"
-                    />
-                    <XAxis
-                      type="number"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 9, fill: "#8a9090" }}
-                      tickFormatter={(value) => `$${Math.round(value / 1000)}k`}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={112}
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 9, fill: "#737c7d" }}
-                    />
-                    <Tooltip
-                      formatter={(value) => formatCurrency(Number(value))}
-                      contentStyle={{
-                        borderRadius: 4,
-                        border: "1px solid #dedfd9",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar
-                      dataKey="amount"
-                      radius={[0, 3, 3, 0]}
-                      maxBarSize={22}
-                    >
-                      {(analytics.categories ?? []).map((category, index) => (
-                        <Cell
-                          key={category.name}
-                          fill={chartColors[index % chartColors.length]}
-                        />
-                      ))}
-                    </Bar>
+                  <BarChart data={statuses} layout="vertical" margin={{ top: 0, right: 20, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e8e9e4" />
+                    <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#8a9090' }} />
+                    <YAxis type="category" dataKey="name" width={110} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#737c7d' }} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Bar dataKey="count" radius={[0, 3, 3, 0]} maxBarSize={22}>{statuses.map((s, i) => <Cell key={s.name} fill={chartColors[i % chartColors.length]} />)}</Bar>
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartPanel>
 
-            <ChartPanel
-              title="Document type distribution"
-              description="Invoice and receipt count in the workspace"
-            >
-              {analyticsQuery.isLoading ? (
-                <div className="mx-auto mt-10 h-40 w-40 animate-pulse rounded-full bg-muted" />
-              ) : !analytics?.types.length ? (
-                <div className="grid h-full place-items-center text-xs text-muted-foreground">
-                  No document types yet.
-                </div>
-              ) : (
+            <ChartPanel title="Document types" description="Processed documents by classified type">
+              {loading ? <div className="mx-auto mt-10 h-40 w-40 animate-pulse rounded-full bg-muted" /> : types.length === 0 ? <Empty>No processed documents yet.</Empty> : (
                 <div className="relative h-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={analytics.types}
-                        dataKey="count"
-                        nameKey="name"
-                        innerRadius={56}
-                        outerRadius={82}
-                        paddingAngle={4}
-                        stroke="none"
-                      >
-                        {analytics.types.map((type, index) => (
-                          <Cell
-                            key={type.name}
-                            fill={chartColors[index % chartColors.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <PieChart><Pie data={types} dataKey="count" nameKey="name" innerRadius={56} outerRadius={82} paddingAngle={4} stroke="none">{types.map((t, i) => <Cell key={t.name} fill={chartColors[i % chartColors.length]} />)}</Pie><Tooltip /></PieChart>
                   </ResponsiveContainer>
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                    <div className="text-xl font-semibold">
-                      {analytics.documentCount}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground">
-                      documents
-                    </div>
-                  </div>
-                  <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-5">
-                    {analytics.types.map((type, index) => (
-                      <div
-                        key={type.name}
-                        className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
-                      >
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{
-                            background: chartColors[index % chartColors.length],
-                          }}
-                        />
-                        {type.name} <b className="text-foreground">{type.count}</b>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-5">{types.map((t, i) => <div key={t.name} className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="h-2 w-2 rounded-full" style={{ background: chartColors[i % chartColors.length] }} />{t.name} <b className="text-foreground">{t.count}</b></div>)}</div>
                 </div>
               )}
             </ChartPanel>
           </div>
         </>
       )}
-
-      <p className="mt-5 text-[10px] text-muted-foreground">
-        Charts use local sample data and are not live financial reporting.
-      </p>
+      <p className="mt-5 text-[10px] text-muted-foreground">Figures are sums of extracted values, not audited financial reporting. Confidence scores are heuristics, not measured accuracy.</p>
     </div>
   );
 }

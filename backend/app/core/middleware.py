@@ -74,3 +74,32 @@ class UploadSizeLimitMiddleware:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+class SecurityHeadersMiddleware:
+    """Conservative security headers on every response (API and SPA)."""
+
+    HEADERS = (
+        (b"x-content-type-options", b"nosniff"),
+        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+        (b"x-frame-options", b"DENY"),
+        (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+    )
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message) -> None:  # noqa: ANN001
+            if message["type"] == "http.response.start":
+                existing = {name.lower() for name, _ in message.get("headers", [])}
+                message["headers"] = list(message.get("headers", [])) + [
+                    (name, value) for name, value in self.HEADERS if name not in existing
+                ]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
