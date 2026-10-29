@@ -82,7 +82,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-3"><Settings2 size={16} className="mt-0.5 text-primary" /><div><h2 className="text-sm font-semibold">Appearance</h2><p className="mt-1 text-[10px] text-muted-foreground">Saved in this browser.</p></div></div>
             <div className="mt-4 flex gap-2">
               {(['light', 'dark'] as const).map((t) => (
-                <button key={t} type="button" onClick={() => chooseTheme(t)} aria-pressed={theme === t} className={`flex-1 rounded-sm border p-2 text-[10px] capitalize ${theme === t ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground'}`} data-testid={`button-theme-${t}`}>{t}</button>
+                <button key={t} type="button" onClick={() => chooseTheme(t)} aria-pressed={theme === t} className={`h-10 flex-1 rounded-sm border px-2 text-[11px] capitalize sm:h-auto sm:p-2 sm:text-[10px] ${theme === t ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground'}`} data-testid={`button-theme-${t}`}>{t}</button>
               ))}
             </div>
           </section>

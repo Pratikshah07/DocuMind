@@ -68,7 +68,7 @@ export default function DashboardPage() {
         />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <Metric label="Total documents" value={loading ? '—' : o?.total_documents} caption="Uploaded to this workspace" icon={FileText} />
             <Metric label="Processed" value={loading ? '—' : o?.processed} caption={o ? `${o.needs_review} need review` : 'Ready or needing review'} icon={FileCheck2} />
             <Metric label="Processing" value={loading ? '—' : o?.in_progress} caption="Queued, OCR or extraction" icon={Timer} />

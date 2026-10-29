@@ -51,7 +51,7 @@ export default function AnalyticsPage() {
         />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <Metric label="Total spending" value={loading ? '—' : primary ? formatMoney(primary.total, currency) : '—'} caption={primary ? `${primary.document_count} document${primary.document_count === 1 ? '' : 's'}${currency ? '' : ' with no currency found'}` : 'No totals extracted yet'} icon={ReceiptText} />
             <Metric label="Average per document" value={loading ? '—' : primary ? formatMoney(primary.average, currency) : '—'} caption="Total ÷ documents with a total" icon={BarChart3} />
             <Metric label="Documents processed" value={loading ? '—' : o?.processed} caption={o ? `${o.needs_review} still need review` : ''} icon={FileCheck2} />

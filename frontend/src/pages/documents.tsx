@@ -99,7 +99,7 @@ export default function DocumentsPage() {
   };
 
   const label = 'mb-1 block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground';
-  const select = 'h-9 rounded-sm border border-border bg-background px-2.5 text-[11px]';
+  const select = 'h-10 w-full rounded-sm border border-border bg-background px-2.5 text-[11px] sm:h-9 sm:w-auto';
 
   return (
     <div className="page-enter">
@@ -116,13 +116,13 @@ export default function DocumentsPage() {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by file name or vendor…" aria-label="Search documents" className="h-10 w-full rounded-sm border border-border bg-background pl-9 pr-3 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 sm:max-w-sm" data-testid="input-search-documents" />
           </label>
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
             <label className="block"><span className={label}>Status</span><select value={status} onChange={(e) => setStatus(e.target.value)} className={`${select} min-w-32`} data-testid="select-filter-status">{Object.keys(STATUS_FILTERS).map((s) => <option key={s}>{s}</option>)}</select></label>
             <label className="block"><span className={label}>Type</span><select value={type} onChange={(e) => setType(e.target.value)} className={`${select} min-w-28`} data-testid="select-filter-type">{['All types', 'Invoice', 'Receipt', 'Unknown'].map((t) => <option key={t}>{t}</option>)}</select></label>
-            <label className="block"><span className={label}>Document date from</span><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-9 rounded-sm border border-border bg-background px-2 text-[10px]" data-testid="input-filter-from-date" /></label>
-            <label className="block"><span className={label}>To</span><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-9 rounded-sm border border-border bg-background px-2 text-[10px]" data-testid="input-filter-to-date" /></label>
+            <label className="block"><span className={label}>Document date from</span><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-10 w-full rounded-sm border border-border bg-background px-2 text-[10px] sm:h-9 sm:w-auto" data-testid="input-filter-from-date" /></label>
+            <label className="block"><span className={label}>To</span><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-10 w-full rounded-sm border border-border bg-background px-2 text-[10px] sm:h-9 sm:w-auto" data-testid="input-filter-to-date" /></label>
             <label className="block"><span className={label}>Sort by</span><select value={sort} onChange={(e) => setSort(e.target.value)} className={`${select} min-w-36`} data-testid="select-sort-documents">{Object.keys(SORTS).map((s) => <option key={s}>{s}</option>)}</select></label>
-            {filtered && <button type="button" onClick={clearFilters} className="h-9 px-2 text-[11px] font-semibold text-primary hover:underline" data-testid="button-clear-filters">Clear filters</button>}
+            {filtered && <button type="button" onClick={clearFilters} className="h-10 px-2 text-left text-[11px] font-semibold text-primary hover:underline sm:h-9" data-testid="button-clear-filters">Clear filters</button>}
           </div>
         </div>
 
@@ -130,9 +130,9 @@ export default function DocumentsPage() {
           <span data-testid="text-document-count">{query.isLoading ? 'Loading documents…' : `${total} document${total === 1 ? '' : 's'}`}</span>
           {pages > 1 && (
             <span className="flex items-center gap-2">
-              <button className="grid h-6 w-6 place-items-center rounded-sm hover:bg-muted disabled:opacity-40" disabled={page === 0} onClick={() => setPage((p) => p - 1)} aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
+              <button className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" disabled={page === 0} onClick={() => setPage((p) => p - 1)} aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
               Page {page + 1} of {pages}
-              <button className="grid h-6 w-6 place-items-center rounded-sm hover:bg-muted disabled:opacity-40" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)} aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
+              <button className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)} aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
             </span>
           )}
         </div>

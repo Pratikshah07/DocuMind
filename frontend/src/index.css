@@ -442,3 +442,39 @@
     inset: -1px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Mobile compatibility
+   --------------------------------------------------------------------------- */
+
+/* Grid items default to min-width: auto, so one long unbroken string (a file name)
+   widened whole columns past the screen edge. Let them shrink and truncate instead. */
+.grid > * {
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  /* iOS Safari zooms the page when a focused field's text is under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media (max-width: 639px) {
+  /* The desktop design uses 9–11px micro-labels; on phones raise them to a readable size
+     (app pages only; the landing page has its own sizes). */
+  .app-main .text-\[9px\] {
+    font-size: 11px;
+  }
+  .app-main .text-\[10px\] {
+    font-size: 12px;
+  }
+  .app-main .text-\[11px\] {
+    font-size: 12.5px;
+  }
+  .app-main .text-xs {
+    font-size: 13px;
+  }
+}

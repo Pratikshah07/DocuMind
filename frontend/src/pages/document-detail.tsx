@@ -40,7 +40,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-foreground/35 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="modal-title" className="w-full max-w-md rounded-md border border-border bg-card p-5 shadow-xl">
-        <div className="flex items-start justify-between gap-3"><h2 id="modal-title" className="text-base font-semibold">{title}</h2><button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-sm text-muted-foreground hover:bg-muted" aria-label="Close dialog" data-testid="button-close-dialog"><X size={16} /></button></div>
+        <div className="flex items-start justify-between gap-3"><h2 id="modal-title" className="text-base font-semibold">{title}</h2><button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" aria-label="Close dialog" data-testid="button-close-dialog"><X size={16} /></button></div>
         <div className="mt-3">{children}</div>
       </section>
     </div>
@@ -196,15 +196,15 @@ export default function DocumentDetailPage() {
 
   return (
     <div className="page-enter">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/app/documents" className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary" data-testid="link-back-documents"><ArrowLeft size={15} />All documents</Link>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <Link href="/app/documents" className="inline-flex h-10 items-center gap-2 self-start text-xs font-semibold text-muted-foreground hover:text-primary sm:h-auto" data-testid="link-back-documents"><ArrowLeft size={15} />All documents</Link>
         <div className="flex flex-wrap items-center gap-2">
           {ready && <span className="hidden text-[10px] text-muted-foreground sm:inline" data-testid="text-save-state">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>}
-          {ready && <Button variant="outline" onClick={exportJson} testid="button-export-json"><FileJson2 size={15} /><span className="hidden sm:inline">Export JSON</span></Button>}
-          <Button variant="outline" onClick={() => void download()} testid="button-download-document"><Download size={15} /><span className="hidden sm:inline">Original</span></Button>
-          {!isInProgress(doc.status) && <Button variant="outline" onClick={() => setConfirm('reprocess')} testid="button-reprocess"><RotateCcw size={15} /><span className="hidden sm:inline">Reprocess</span></Button>}
+          {ready && <Button variant="outline" onClick={exportJson} testid="button-export-json"><FileJson2 size={15} />JSON</Button>}
+          <Button variant="outline" onClick={() => void download()} testid="button-download-document"><Download size={15} />Original</Button>
+          {!isInProgress(doc.status) && <Button variant="outline" onClick={() => setConfirm('reprocess')} testid="button-reprocess"><RotateCcw size={15} />Reprocess</Button>}
           {ready && <Button onClick={() => save.mutate()} disabled={!dirty || save.isPending} testid="button-save-document">{save.isPending ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />}Save</Button>}
-          <Button variant="ghost" className="h-9 w-9 px-0" onClick={() => setConfirm('delete')} testid="button-delete-document"><Trash2 size={16} /><span className="sr-only">Delete document</span></Button>
+          <Button variant="ghost" className="text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40" onClick={() => setConfirm('delete')} testid="button-delete-document"><Trash2 size={16} /><span className="sm:sr-only">Delete</span></Button>
         </div>
       </div>
 
@@ -243,12 +243,12 @@ export default function DocumentDetailPage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-xs font-semibold"><FileText size={15} className="text-primary" />Document preview</div>
             <div className="flex items-center gap-1">
-              <button className="grid h-7 w-7 place-items-center rounded-sm text-muted-foreground hover:bg-muted" onClick={() => setZoom((z) => Math.max(60, z - 10))} aria-label="Zoom out" data-testid="button-zoom-out"><ZoomOut size={15} /></button>
+              <button className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" onClick={() => setZoom((z) => Math.max(60, z - 10))} aria-label="Zoom out" data-testid="button-zoom-out"><ZoomOut size={15} /></button>
               <span className="w-10 text-center font-mono text-[10px]">{zoom}%</span>
-              <button className="grid h-7 w-7 place-items-center rounded-sm text-muted-foreground hover:bg-muted" onClick={() => setZoom((z) => Math.min(160, z + 10))} aria-label="Zoom in" data-testid="button-zoom-in"><ZoomIn size={15} /></button>
+              <button className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" onClick={() => setZoom((z) => Math.min(160, z + 10))} aria-label="Zoom in" data-testid="button-zoom-in"><ZoomIn size={15} /></button>
             </div>
           </div>
-          <div className="subtle-grid flex min-h-[540px] justify-center overflow-auto bg-[#eeefeb] p-6 dark:bg-muted/30">
+          <div className="subtle-grid flex min-h-[260px] justify-center overflow-auto bg-[#eeefeb] p-3 dark:bg-muted/30 sm:min-h-[540px] sm:p-6">
             {hasPreview ? <PagePreview documentId={id} page={page} zoom={zoom} /> : (
               <p className="self-center text-center text-xs text-muted-foreground">{isInProgress(doc.status) ? 'The preview appears when processing finishes.' : 'No preview is available. Download the original instead.'}</p>
             )}
@@ -257,9 +257,9 @@ export default function DocumentDetailPage() {
             <span>{pageCount ? `${pageCount} page${pageCount === 1 ? '' : 's'}` : '—'}{doc.pages[page - 1]?.text_source ? ` · page text from ${doc.pages[page - 1].text_source === 'OCR' ? `OCR (${formatPercent(doc.pages[page - 1].ocr_confidence)} engine confidence)` : 'the PDF text layer'}` : ''}</span>
             {pageCount > 1 && (
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="grid h-6 w-6 place-items-center rounded-sm hover:bg-muted disabled:opacity-40" aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
                 <span>{page} / {pageCount}</span>
-                <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} className="grid h-6 w-6 place-items-center rounded-sm hover:bg-muted disabled:opacity-40" aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
+                <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
               </div>
             )}
           </div>
@@ -281,7 +281,7 @@ export default function DocumentDetailPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3.5">
                   <div><h2 className="text-sm font-semibold">Extracted fields</h2><p className="mt-1 text-[10px] text-muted-foreground">Edit any value, then save. Required fields are marked *.</p></div>
                   <label className="flex items-center gap-2 text-[10px] text-muted-foreground">Type
-                    <select value={docType ?? ''} onChange={(e) => setDocType(e.target.value as DocumentType)} className="h-8 rounded-sm border border-border bg-background px-2 text-[11px] text-foreground" data-testid="select-document-type">
+                    <select value={docType ?? ''} onChange={(e) => setDocType(e.target.value as DocumentType)} className="h-10 rounded-sm border sm:h-8 border-border bg-background px-2 text-[11px] text-foreground" data-testid="select-document-type">
                       {(['INVOICE', 'RECEIPT', 'UNKNOWN'] as DocumentType[]).map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
                     </select>
                     {data.document_type_confidence !== null && <span title="Heuristic classification confidence">{formatPercent(data.document_type_confidence)}</span>}
@@ -298,14 +298,14 @@ export default function DocumentDetailPage() {
                     return (
                       <label key={field.name} className={`block ${wide ? 'sm:col-span-2' : ''}`} data-testid={`field-${field.name}`}>
                         <span className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold text-muted-foreground">
-                          <span className="flex items-center gap-1.5">{FIELD_LABEL[field.name] ?? field.name}{field.required && <span className="text-red-700">*</span>}<FieldStatusBadge status={field.status} />{field.is_user_edited && <span className="rounded-sm bg-accent px-1.5 py-0.5 text-[9px] text-primary">Edited</span>}</span>
+                          <span className="flex min-w-0 flex-wrap items-center gap-1.5">{FIELD_LABEL[field.name] ?? field.name}{field.required && <span className="text-red-700">*</span>}<FieldStatusBadge status={field.status} />{field.is_user_edited && <span className="rounded-sm bg-accent px-1.5 py-0.5 text-[9px] text-primary">Edited</span>}</span>
                           {effective !== null && <span className={low ? 'text-[#a77c36]' : 'text-primary'} title={`${METHOD_LABEL[field.method ?? ''] ?? ''}${field.page_number ? ` · page ${field.page_number}` : ''}. Heuristic score, not measured accuracy.`}>{formatPercent(effective)} {field.confidence_level}</span>}
                         </span>
                         <input
                           value={values[field.name] ?? ''}
                           onChange={(e) => { setValues((v) => ({ ...v, [field.name]: e.target.value })); setFieldErrors((f) => ({ ...f, [field.name]: '' })); }}
                           placeholder={field.status === 'missing' ? 'Not found in the document' : DATE_FIELDS.has(field.name) ? 'YYYY-MM-DD' : AMOUNT_FIELDS.has(field.name) ? '0.00' : ''}
-                          className={`h-9 w-full rounded-sm border bg-background px-2.5 text-xs outline-none focus:border-primary ${error ? 'border-red-500' : low ? 'border-[#d8c59e]' : 'border-border'}`}
+                          className={`h-11 w-full rounded-sm border bg-background px-2.5 text-xs outline-none focus:border-primary sm:h-9 ${error ? 'border-red-500' : low ? 'border-[#d8c59e]' : 'border-border'}`}
                           data-testid={`input-field-${field.name}`}
                           aria-invalid={Boolean(error)}
                         />
@@ -326,15 +326,21 @@ export default function DocumentDetailPage() {
                 </div>
                 {rows.length > 0 && (
                   <>
-                    <div className="grid grid-cols-[1fr_56px_80px_84px_24px] gap-2 px-4 pt-3 text-[9px] font-bold uppercase tracking-wider text-muted-foreground"><span>Description</span><span className="text-right">Qty</span><span className="text-right">Unit price</span><span className="text-right">Total</span><span /></div>
+                    <div className="hidden grid-cols-[1fr_56px_80px_84px_24px] gap-2 px-4 pt-3 text-[9px] font-bold uppercase tracking-wider text-muted-foreground sm:grid"><span>Description</span><span className="text-right">Qty</span><span className="text-right">Unit price</span><span className="text-right">Total</span><span /></div>
                     <div className="divide-y divide-border">
                       {rows.map((row, index) => (
-                        <div key={row.key} className="grid grid-cols-[1fr_56px_80px_84px_24px] items-center gap-2 px-4 py-2.5" data-testid={`line-item-${index + 1}`}>
-                          <input value={row.description} onChange={(e) => setRows((r) => r.map((x) => (x.key === row.key ? { ...x, description: e.target.value } : x)))} className="min-w-0 rounded-sm border border-transparent bg-transparent px-1 py-1 text-[11px] outline-none focus:border-primary focus:bg-background" aria-label={`Line ${index + 1} description`} data-testid={`input-item-description-${index + 1}`} />
+                        <div key={row.key} className="grid grid-cols-[1fr_1fr_1fr_40px] items-end gap-2 px-4 py-3 sm:grid-cols-[1fr_56px_80px_84px_24px] sm:items-center sm:py-2.5" data-testid={`line-item-${index + 1}`}>
+                          <label className="col-span-3 sm:col-span-1">
+                            <span className="mb-1 block text-[10px] font-semibold text-muted-foreground sm:hidden">Description</span>
+                            <input value={row.description} onChange={(e) => setRows((r) => r.map((x) => (x.key === row.key ? { ...x, description: e.target.value } : x)))} className="h-11 w-full min-w-0 rounded-sm border border-border bg-background px-2 text-[11px] outline-none focus:border-primary sm:h-auto sm:border-transparent sm:bg-transparent sm:px-1 sm:py-1 sm:focus:bg-background" aria-label={`Line ${index + 1} description`} data-testid={`input-item-description-${index + 1}`} />
+                          </label>
+                          <button onClick={() => setRows((r) => r.filter((x) => x.key !== row.key))} className="row-start-1 col-start-4 grid h-11 w-10 place-items-center self-end rounded-sm text-muted-foreground hover:bg-muted hover:text-red-700 sm:col-start-5 sm:h-6 sm:w-6 sm:self-center" aria-label={`Remove line ${index + 1}`} data-testid={`button-remove-item-${index + 1}`}><X size={15} /></button>
                           {(['quantity', 'unit_price', 'total'] as const).map((key) => (
-                            <input key={key} inputMode="decimal" value={row[key]} onChange={(e) => setRows((r) => r.map((x) => (x.key === row.key ? { ...x, [key]: e.target.value } : x)))} className="w-full rounded-sm border border-border bg-background px-1.5 py-1 text-right font-mono text-[10px] outline-none focus:border-primary" aria-label={`Line ${index + 1} ${key.replace('_', ' ')}`} data-testid={`input-item-${key}-${index + 1}`} />
+                            <label key={key} className="min-w-0">
+                              <span className="mb-1 block text-[10px] font-semibold text-muted-foreground sm:hidden">{key === 'quantity' ? 'Qty' : key === 'unit_price' ? 'Unit price' : 'Total'}</span>
+                              <input inputMode="decimal" value={row[key]} onChange={(e) => setRows((r) => r.map((x) => (x.key === row.key ? { ...x, [key]: e.target.value } : x)))} className="h-11 w-full rounded-sm border border-border bg-background px-1.5 text-right font-mono text-[10px] outline-none focus:border-primary sm:h-auto sm:py-1" aria-label={`Line ${index + 1} ${key.replace('_', ' ')}`} data-testid={`input-item-${key}-${index + 1}`} />
+                            </label>
                           ))}
-                          <button onClick={() => setRows((r) => r.filter((x) => x.key !== row.key))} className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-red-700" aria-label={`Remove line ${index + 1}`} data-testid={`button-remove-item-${index + 1}`}><X size={13} /></button>
                         </div>
                       ))}
                     </div>
@@ -353,6 +359,15 @@ export default function DocumentDetailPage() {
         </div>
       </div>
 
+      {ready && dirty && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }} data-testid="bar-mobile-save">
+          <span className="text-xs font-medium text-muted-foreground">Unsaved changes</span>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { setValues(serverValues); setRows(serverRows); setDocType(data?.document_type ?? null); setFieldErrors({}); setFormError(null); }} testid="button-mobile-discard">Discard</Button>
+            <Button onClick={() => save.mutate()} disabled={save.isPending} testid="button-mobile-save">{save.isPending ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />}Save</Button>
+          </div>
+        </div>
+      )}
       {confirm === 'delete' && (
         <Modal title="Delete this document?" onClose={() => setConfirm(null)}>
           <p className="text-sm leading-6 text-muted-foreground">“{doc.original_filename}” and its extracted data will be permanently deleted from the server.</p>

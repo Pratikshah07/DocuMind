@@ -45,10 +45,10 @@ export function FieldStatusBadge({ status }: { status: FieldStatus }) {
 
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-6 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:items-end sm:justify-between">
       <div>
         {eyebrow && <p className="mb-2 text-[11px] font-bold uppercase tracking-[.14em] text-primary">{eyebrow}</p>}
-        <h1 className="text-[27px] font-semibold tracking-[-.035em] text-foreground sm:text-[31px]" data-testid="heading-page">{title}</h1>
+        <h1 className="text-[25px] font-semibold leading-tight tracking-[-.035em] text-foreground sm:text-[31px]" data-testid="heading-page">{title}</h1>
         {description && <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -84,13 +84,13 @@ export function LoadingRows({ rows = 4, height = 'h-12' }: { rows?: number; heig
 
 export function Metric({ label, value, caption, icon: Icon }: { label: string; value: ReactNode; caption: ReactNode; icon: typeof FolderOpen }) {
   return (
-    <section className="rounded-md border border-border bg-card p-4 sm:p-5" data-testid={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}>
+    <section className="rounded-md border border-border bg-card p-3.5 sm:p-5" data-testid={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <span className="grid h-8 w-8 place-items-center rounded-sm bg-accent text-primary"><Icon size={16} /></span>
+        <span className="text-xs font-medium leading-tight text-muted-foreground">{label}</span>
+        <span className="hidden h-8 w-8 shrink-0 place-items-center rounded-sm bg-accent text-primary sm:grid"><Icon size={16} /></span>
       </div>
-      <div className="mt-3 text-[25px] font-semibold tracking-[-.04em]">{value}</div>
-      <div className="mt-1 text-[11px] text-muted-foreground">{caption}</div>
+      <div className="mt-2 truncate text-[22px] font-semibold tracking-[-.04em] sm:mt-3 sm:text-[25px]">{value}</div>
+      <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{caption}</div>
     </section>
   );
 }

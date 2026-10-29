@@ -75,22 +75,22 @@ function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-[68px] max-w-[1220px] items-center justify-between px-5 lg:px-8">
-          <Link href="/" className="text-foreground"><Wordmark large /></Link>
+        <div className="mx-auto flex h-[68px] max-w-[1220px] items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
+          <Link href="/" className="shrink-0 text-foreground"><Wordmark large /></Link>
           <nav className="hidden items-center gap-8 text-[13px] font-medium text-muted-foreground md:flex"><a href="#how-it-works" className="hover:text-foreground">How it works</a><a href="#features" className="hover:text-foreground">Features</a><a href="#technology" className="hover:text-foreground">Technology</a></nav>
           <div className="flex items-center gap-2">
-            <a href={REPO_URL} target="_blank" rel="noreferrer" className={`${buttonBase} hidden text-muted-foreground hover:bg-muted hover:text-foreground sm:inline-flex`} data-testid="link-github"><Github size={16} />GitHub</a>
-            <Link href="/app/dashboard" className={`${buttonBase} bg-primary text-primary-foreground hover:bg-primary/90`} data-testid="link-try-demo">Open the app <ArrowRight size={16} /></Link>
+            <a href={REPO_URL} target="_blank" rel="noreferrer" className={`${buttonBase} h-10 w-10 px-0 text-muted-foreground hover:bg-muted hover:text-foreground sm:w-auto sm:px-3.5`} aria-label="Source code on GitHub" data-testid="link-github"><Github size={16} /><span className="hidden sm:inline">GitHub</span></a>
+            <Link href="/app/dashboard" className={`${buttonBase} whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90`} data-testid="link-try-demo">Open<span className="hidden sm:inline"> the app</span> <ArrowRight size={16} /></Link>
           </div>
         </div>
       </header>
       <main>
         <section className="relative overflow-hidden">
           <div className="subtle-grid absolute inset-0 opacity-50" />
-          <div className="relative mx-auto grid max-w-[1220px] items-center gap-12 px-5 pb-20 pt-14 lg:grid-cols-[.86fr_1.14fr] lg:gap-10 lg:px-8 lg:pb-24 lg:pt-20">
+          <div className="relative mx-auto grid max-w-[1220px] items-center gap-12 px-5 pb-14 pt-10 sm:pb-20 sm:pt-14 lg:grid-cols-[.86fr_1.14fr] lg:gap-10 lg:px-8 lg:pb-24 lg:pt-20">
             <div className="page-enter max-w-[500px]">
               <div className="mb-6 inline-flex items-center gap-2 rounded-sm border border-border bg-card/85 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[.11em] text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" /><span>Document intelligence workspace</span></div>
-              <h1 className="max-w-[540px] text-[45px] font-semibold leading-[1.04] tracking-[-.052em] sm:text-[58px]">Turn Documents<br className="hidden sm:block" /> Into Data</h1>
+              <h1 className="max-w-[540px] text-[40px] font-semibold leading-[1.04] tracking-[-.052em] sm:text-[58px]">Turn Documents<br className="hidden sm:block" /> Into Data</h1>
               <p className="mt-6 max-w-[465px] text-[16px] leading-7 text-muted-foreground">Upload invoices and receipts. DocuMind reads them, with OCR for scans and photos, extracts structured fields and line items, checks the arithmetic and tells you exactly what needs a second look.</p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href="/app/upload" className={`${buttonBase} bg-primary px-5 py-3 text-primary-foreground hover:bg-primary/90`} data-testid="link-hero-demo">Try it with a document <ArrowRight size={16} /></Link>
@@ -98,7 +98,7 @@ function Landing() {
               </div>
               <div className="mt-8 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><ShieldCheck size={15} className="text-primary" /> Uploads are private to your browser <span className="text-border">·</span> <a href={SAMPLES_URL} target="_blank" rel="noreferrer" className="underline hover:text-foreground">Synthetic sample documents</a></div>
             </div>
-            <div className="page-enter relative mx-auto w-full max-w-[635px] [animation-delay:120ms]" aria-hidden="true">
+            <div className="page-enter relative mx-auto hidden w-full max-w-[635px] [animation-delay:120ms] sm:block" aria-hidden="true">
               <div className="absolute -inset-4 rounded-xl bg-[hsl(var(--primary)/.08)] blur-2xl" />
               <div className="relative overflow-hidden rounded-lg border border-border bg-card shadow-[0_18px_50px_rgba(38,54,64,.12)]">
                 <div className="flex h-12 items-center justify-between border-b border-border px-4"><div className="flex items-center gap-2"><Wordmark /><span className="ml-2 border-l border-border pl-3 text-[11px] text-muted-foreground">Workspace</span></div><div className="flex gap-1.5"><span className="h-2 w-2 rounded-full bg-[#d3d5ce]" /><span className="h-2 w-2 rounded-full bg-[#d3d5ce]" /><span className="h-2 w-2 rounded-full bg-[#d3d5ce]" /></div></div>
@@ -168,7 +168,7 @@ function NavLinks({ location, onNavigate, count }: { location: string; onNavigat
   return (
     <>
       {navItems.map(({ href, label, icon: Icon, soon }) => (
-        <Link key={href} href={href} onClick={onNavigate} className={`mb-1 flex h-10 items-center gap-3 rounded-sm px-3 text-[13px] font-medium transition-colors ${location === href ? 'bg-accent text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`nav-${label.toLowerCase().replaceAll(' ', '-')}`}>
+        <Link key={href} href={href} onClick={onNavigate} className={`mb-1 flex h-11 items-center gap-3 rounded-sm px-3 text-[14px] font-medium transition-colors lg:h-10 lg:text-[13px] ${location === href ? 'bg-accent text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} data-testid={`nav-${label.toLowerCase().replaceAll(' ', '-')}`}>
           <Icon size={17} strokeWidth={1.8} />{label}
           {label === 'Documents' && count !== undefined && <span className="ml-auto text-[10px] text-muted-foreground">{String(count).padStart(2, '0')}</span>}
           {soon && <span className="ml-auto rounded-sm border border-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Soon</span>}
@@ -201,21 +201,21 @@ function AppShell({ children }: { children: ReactNode }) {
       {mobileOpen && (
         <div className="fixed inset-0 z-50 bg-foreground/25 lg:hidden" onClick={() => setMobileOpen(false)}>
           <div className="h-full w-[min(280px,85vw)] bg-sidebar p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between"><Link href="/app/dashboard" onClick={() => setMobileOpen(false)}><Wordmark large /></Link><button onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-close-menu"><X size={18} /></button></div>
-            <div className="mt-8"><NavLinks location={location} onNavigate={() => setMobileOpen(false)} count={overview.data?.total_documents} /><Link href="/app/settings" onClick={() => setMobileOpen(false)} className="flex h-11 items-center gap-3 px-3 text-sm text-muted-foreground"><Settings size={17} />Settings</Link></div>
+            <div className="flex items-center justify-between"><Link href="/app/dashboard" onClick={() => setMobileOpen(false)}><Wordmark large /></Link><button onClick={() => setMobileOpen(false)} className="-mr-2 grid h-11 w-11 place-items-center rounded-sm hover:bg-muted" aria-label="Close navigation" data-testid="button-close-menu"><X size={20} /></button></div>
+            <div className="mt-8"><NavLinks location={location} onNavigate={() => setMobileOpen(false)} count={overview.data?.total_documents} /><Link href="/app/settings" onClick={() => setMobileOpen(false)} className={`flex h-11 items-center gap-3 rounded-sm px-3 text-sm ${location === '/app/settings' ? 'bg-accent text-primary' : 'text-muted-foreground'}`} data-testid="mobile-nav-settings"><Settings size={17} />Settings</Link></div>
             <p className="mt-6 px-3 text-[10px] leading-4 text-muted-foreground">{privacyNote}</p>
           </div>
         </div>
       )}
       <div className="min-h-[100dvh] lg:pl-[236px]">
         <header className="sticky top-0 z-30 flex h-[61px] items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur sm:px-7">
-          <div className="flex items-center gap-3"><button className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation" data-testid="button-open-menu"><Menu size={19} /></button><div className="text-[13px] font-semibold">{title}</div><span className="hidden h-4 border-l border-border sm:block" /><ServerIndicator /></div>
-          <div className="flex items-center gap-2">
-            <Link href="/app/upload" className="inline-flex h-9 items-center gap-2 rounded-sm bg-primary px-3 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90" data-testid="button-header-upload"><Plus size={15} /> <span className="hidden sm:inline">Upload documents</span><span className="sm:hidden">Upload</span></Link>
-            <Link href="/app/settings" className="grid h-9 w-9 place-items-center rounded-sm border border-border bg-card text-primary" aria-label="Settings" data-testid="button-settings"><Settings size={15} /></Link>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3"><button className="-ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation" data-testid="button-open-menu"><Menu size={19} /></button><div className="truncate text-[13px] font-semibold">{title}</div><span className="hidden h-4 border-l border-border sm:block" /><ServerIndicator /></div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link href="/app/upload" className="inline-flex h-10 items-center gap-2 rounded-sm bg-primary px-3 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90 lg:h-9" data-testid="button-header-upload"><Plus size={15} /> <span className="hidden sm:inline">Upload documents</span><span className="sm:hidden">Upload</span></Link>
+            <Link href="/app/settings" className="grid h-10 w-10 place-items-center rounded-sm border border-border bg-card text-primary lg:h-9 lg:w-9" aria-label="Settings" data-testid="button-settings"><Settings size={15} /></Link>
           </div>
         </header>
-        <main className="mx-auto max-w-[1360px] px-4 py-7 sm:px-7 sm:py-9">{children}</main>
+        <main className="app-main mx-auto max-w-[1360px] px-4 pb-24 pt-6 sm:px-7 sm:py-9">{children}</main>
       </div>
       <ToastViewport />
     </div>
