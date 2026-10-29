@@ -157,6 +157,26 @@ def main() -> int:
             expect(page.get_by_test_id("banner-review")).to_have_count(0)
             return "total corrected; status Ready after reload"
 
+        @step("10a. Reprocess keeps the correction; history records it")
+        def reprocess_keeps_edit():
+            page.goto(f"/app/documents/{docs['mismatch']}")
+            page.get_by_test_id("button-reprocess").click()
+            expect(page.get_by_test_id("checkbox-discard-corrections")).not_to_be_checked()
+            page.get_by_test_id("button-confirm-reprocess").click()
+            expect(page.get_by_test_id("input-field-total")).to_have_value("2195.00", timeout=PROCESS_TIMEOUT)
+            expect(page.get_by_test_id("status-completed").first).to_be_visible()
+            history = page.get_by_test_id("section-edit-history")
+            history.locator("summary").click()
+            expect(history).to_contain_text("2,295.00")
+            return "correction re-applied after re-extraction"
+
+        @step("10b. Duplicate upload is detected, not stored twice")
+        def duplicate():
+            page.goto("/app/upload")
+            page.get_by_test_id("input-upload-files").set_input_files(str(SAMPLES / "01_invoice_standard.pdf"))
+            expect(page.get_by_test_id("text-duplicate")).to_be_visible(timeout=60_000)
+            expect(page.get_by_test_id("link-open-existing")).to_have_attribute("href", f"/app/documents/{docs['standard']}")
+
         @step("11. Download original file")
         def download():
             page.goto(f"/app/documents/{docs['standard']}")
@@ -220,13 +240,14 @@ def main() -> int:
             page.goto("/app/documents")
             expect(page.get_by_test_id("text-document-count")).to_have_text("0 documents")
 
-        for test in (landing, health, empty, text_pdf, detail, scanned, invalid, review, invalid_edit, edit, download,
+        for test in (landing, health, empty, text_pdf, detail, scanned, invalid, review, invalid_edit, edit,
+                     reprocess_keeps_edit, duplicate, download,
                      dashboards, chat, delete, isolation, mobile, cleanup):
             test()
         browser.close()
 
     # 4xx responses we trigger on purpose show up as "Failed to load resource" console messages.
-    expected = re.compile(r"Failed to load resource: the server responded with a status of (404|415|422)")
+    expected = re.compile(r"Failed to load resource: the server responded with a status of (404|409|415|422)")
     unexpected = [e for e in console_errors if not expected.search(e)]
     results.append(("18. No unexpected browser console errors", not unexpected, "; ".join(unexpected[:3]) or "none"))
     print(f"{'PASS' if not unexpected else 'FAIL'}  18. No unexpected browser console errors  {unexpected[:3] or ''}")

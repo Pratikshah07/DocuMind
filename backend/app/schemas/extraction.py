@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -56,6 +56,23 @@ class WarningView(BaseModel):
     severity: WarningSeverity
 
 
+class ExtractionEditView(BaseModel):
+    model_config = {"from_attributes": True}
+
+    kind: Literal["edit", "reset"] = Field(
+        description="`edit`: a correction. `reset`: corrections discarded when reprocessing."
+    )
+    field: str | None = Field(description="Field name, `document_type` or `line_items` (JSON values).")
+    old_value: str | None
+    new_value: str | None = Field(description="Null means the value was cleared.")
+    created_at: datetime
+
+
+class ExtractionHistoryResponse(BaseModel):
+    document_id: uuid.UUID
+    edits: list[ExtractionEditView]
+
+
 class DocumentExtractionResponse(BaseModel):
     document_id: uuid.UUID
     status: DocumentStatus
@@ -66,6 +83,7 @@ class DocumentExtractionResponse(BaseModel):
         description="Mean effective confidence of the required fields (missing/invalid count as 0)."
     )
     needs_review: bool
+    line_items_user_edited: bool = Field(description="The line items are the user's correction.")
     fields: list[ExtractedFieldView]
     line_items: list[LineItemView]
     warnings: list[WarningView]
@@ -114,6 +132,7 @@ def build_response(
         document_type_user_edited=outcome.type_user_edited,
         overall_confidence=outcome.overall_confidence,
         needs_review=outcome.needs_review,
+        line_items_user_edited=outcome.line_items_user_edited,
         fields=fields,
         line_items=[
             LineItemView(

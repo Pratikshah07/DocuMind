@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -26,22 +27,41 @@ from app.core.middleware import (
 from app.core.rate_limit import SlidingWindowLimiter
 from app.core.workspace import WORKSPACE_HEADER
 from app.db.session import get_sessionmaker
+from app.services.maintenance_service import recover_interrupted_jobs, sweep_orphans
 from app.services.retention_service import purge_expired
 
 logger = logging.getLogger(__name__)
 
-RETENTION_SWEEP_SECONDS = 15 * 60
 
-
-async def _retention_loop(settings: Settings) -> None:
-    while True:
+def run_maintenance(settings: Settings, *, startup: bool) -> None:
+    """One housekeeping pass. Each step is independent: one failing doesn't skip the others."""
+    factory = get_sessionmaker()
+    storage = build_storage(settings, factory)
+    stale = timedelta(seconds=settings.processing_stale_after_seconds)
+    steps = [
+        ("retention", lambda: purge_expired(factory, storage, settings.retention_hours)),
+        (
+            "job_recovery",
+            lambda: recover_interrupted_jobs(
+                factory, storage, older_than=None if startup and settings.recover_jobs_on_startup else stale
+            ),
+        ),
+        # Grace of 2x the stale timeout: an upload or a run in progress is never swept.
+        ("orphan_sweep", lambda: sweep_orphans(factory, storage, grace=2 * stale)),
+    ]
+    for name, step in steps:
         try:
-            factory = get_sessionmaker()
-            storage = build_storage(settings, factory)
-            await asyncio.to_thread(purge_expired, factory, storage, settings.retention_hours)
+            step()
         except Exception:
-            logger.exception("retention_sweep_failed")
-        await asyncio.sleep(RETENTION_SWEEP_SECONDS)
+            logger.exception("maintenance_step_failed", extra={"step": name})
+
+
+async def _maintenance_loop(settings: Settings) -> None:
+    startup = True
+    while True:
+        await asyncio.to_thread(run_maintenance, settings, startup=startup)
+        startup = False
+        await asyncio.sleep(settings.maintenance_interval_seconds)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,7 +70,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        task = asyncio.create_task(_retention_loop(settings)) if settings.retention_hours > 0 else None
+        task = (
+            asyncio.create_task(_maintenance_loop(settings))
+            if settings.maintenance_interval_seconds
+            else None
+        )
         yield
         if task:
             task.cancel()

@@ -4,7 +4,12 @@ Consistency rules between the database and file storage:
 - Upload writes the file first, then the row. If the row can't be committed,
   the file is removed, so there is never a row pointing at a missing file.
 - Delete removes the row first, then the file. A failed file delete leaves an
-  orphaned file (logged), never a row without its file.
+  orphaned file (logged, then removed by the maintenance sweep), never a row without its file.
+
+Duplicates: a file whose SHA-256 is already in the *same* workspace is rejected with 409
+``duplicate_document`` (pointing at the existing document) unless the client explicitly
+asks to keep both. Other workspaces are never consulted, so the check reveals nothing
+about other visitors' uploads.
 """
 
 import logging
@@ -47,7 +52,14 @@ class DocumentService:
 
     # --- Commands ---
 
-    def upload(self, *, filename: str | None, content_type: str | None, stream: BinaryIO) -> Document:
+    def upload(
+        self,
+        *,
+        filename: str | None,
+        content_type: str | None,
+        stream: BinaryIO,
+        allow_duplicate: bool = False,
+    ) -> Document:
         if self.max_documents and self._count() >= self.max_documents:
             raise ConflictError(
                 f"This demo workspace holds at most {self.max_documents} documents. "
@@ -65,6 +77,15 @@ class DocumentService:
         storage_key = f"{ORIGINALS}/{document_id}{validated.kind.extension}"
 
         with validated.content:
+            if not allow_duplicate and (existing := self._find_by_hash(validated.sha256)) is not None:
+                raise ConflictError(
+                    "This file is already in your workspace.",
+                    code="duplicate_document",
+                    details={
+                        "existing_document_id": str(existing.id),
+                        "existing_filename": existing.original_filename,
+                    },
+                )
             self.storage.save(storage_key, validated.content)
 
         document = Document(
@@ -166,6 +187,14 @@ class DocumentService:
         if document is None:
             raise NotFoundError("Document not found.", code="document_not_found")
         return document
+
+    def _find_by_hash(self, sha256: str) -> Document | None:
+        return self.db.scalar(
+            select(Document)
+            .where(Document.workspace_id == self.workspace_id, Document.sha256 == sha256)
+            .order_by(Document.created_at)
+            .limit(1)
+        )
 
     def _count(self) -> int:
         return (

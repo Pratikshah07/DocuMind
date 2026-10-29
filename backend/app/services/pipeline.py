@@ -12,8 +12,10 @@ Consistency rules:
 - Pages, extracted fields, line items and warnings always reflect the *last
   successful* run: they are replaced (delete + insert) in the same transaction
   that sets the final status, and cleared when a run fails, so a FAILED document
-  never shows stale data and a retry never duplicates rows. Reprocessing starts
-  fresh: earlier manual corrections are replaced (D35).
+  never shows stale data and a retry never duplicates rows.
+- User corrections live in ``extraction_edits`` and are re-applied on top of every
+  fresh extraction, before validation (see ``corrections``). Only an explicit
+  "discard my corrections" reset stops that.
 - Preview files are written before that commit (keys are deterministic, so a
   retry overwrites them); previews no longer referenced are deleted after it.
 """
@@ -33,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.db.base import utcnow
 from app.models import Document, DocumentPage, DocumentStatus, JobStatus, ProcessingJob, TextSource
+from app.services.corrections import active_corrections, apply_corrections
 from app.services.extraction.types import PageText
 from app.services.extraction_service import (
     ExtractionEngine,
@@ -235,8 +238,17 @@ class DocumentProcessor:
         texts = [PageText(p.page_number, p.text, p.text_source, p.ocr_confidence) for p in pages]
         self._set_stage(db, job, document, DocumentStatus.EXTRACTING)
         outcome = self.extraction.extract(texts)
+        applied = apply_corrections(
+            outcome, active_corrections(db, document.id), self.extraction.config.date_order
+        )
+        outcome.line_items_user_edited = "line_items" in applied
         self._set_stage(db, job, document, DocumentStatus.VALIDATING)
-        return self.extraction.validate(outcome)
+        outcome = self.extraction.validate(outcome)
+        if applied:
+            logger.info(
+                "corrections_reapplied", extra={"document_id": str(document.id), "fields": sorted(applied)}
+            )
+        return outcome
 
     def _ocr(self, image: np.ndarray, page_number: int) -> OCRResult:
         try:

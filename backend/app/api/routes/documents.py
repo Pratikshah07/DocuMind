@@ -26,7 +26,9 @@ router = APIRouter(prefix="/documents", tags=["documents"])
     description=(
         "Upload one PDF, PNG or JPEG (multipart field `file`). The type is detected from the file's "
         "content; the extension and declared Content-Type must agree with it. The document is stored "
-        "with status `UPLOADED` and processing is queued; poll `GET /documents/{id}/status`."
+        "with status `UPLOADED` and processing is queued; poll `GET /documents/{id}/status`. "
+        "A file identical to one already in the workspace (same SHA-256) is rejected with 409 "
+        "`duplicate_document` and the existing document's ID, unless `allow_duplicate=true`."
     ),
     responses=error_responses(401, 409, 413, 415, 422, 429),
     dependencies=[RateLimited],
@@ -37,8 +39,16 @@ def upload_document(
     request: Request,
     response: Response,
     file: Annotated[UploadFile, File(description="PDF, PNG or JPEG file.")],
+    allow_duplicate: Annotated[
+        bool, Query(description="Keep a second copy of a file already in this workspace.")
+    ] = False,
 ) -> DocumentUploadResponse:
-    document = service.upload(filename=file.filename, content_type=file.content_type, stream=file.file)
+    document = service.upload(
+        filename=file.filename,
+        content_type=file.content_type,
+        stream=file.file,
+        allow_duplicate=allow_duplicate,
+    )
     job = processing.enqueue(document.id)
     response.headers["Location"] = str(request.url_for("get_document", document_id=document.id).path)
     return DocumentUploadResponse(

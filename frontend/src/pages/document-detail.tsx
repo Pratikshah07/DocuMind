@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowLeft, Check, ChevronLeft, ChevronRight, CircleAlert, Download, FileJson2, FileText, Info,
-  LoaderCircle, Plus, RotateCcw, Trash2, X, ZoomIn, ZoomOut,
+  History, LoaderCircle, Plus, RotateCcw, Trash2, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { EmptyState, ErrorState, FieldStatusBadge, StatusBadge } from '@/components/documind';
@@ -12,7 +12,7 @@ import {
 } from '@/lib/format';
 import { buttonBase, notify, saveBlob } from '@/lib/ui';
 import {
-  api, isInProgress, isProcessed, queryKeys, type DocumentType, type Extraction, type ExtractionUpdate, type LineItemInput,
+  api, isInProgress, isProcessed, queryKeys, type DocumentType, type Extraction, type ExtractionEdit, type ExtractionUpdate, type LineItemInput,
 } from '@/services/api';
 
 type Row = { key: string; description: string; quantity: string; unit_price: string; total: string; confidence: number | null };
@@ -47,6 +47,38 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
+const EDIT_LABEL: Record<string, string> = { document_type: 'Document type', line_items: 'Line items' };
+
+function describeEdit(edit: ExtractionEdit): string {
+  if (edit.kind === 'reset') return 'Corrections discarded when the document was reprocessed';
+  const label = EDIT_LABEL[edit.field ?? ''] ?? FIELD_LABEL[edit.field ?? ''] ?? edit.field ?? 'Value';
+  if (edit.field === 'line_items') {
+    const count = (JSON.parse(edit.new_value ?? '[]') as unknown[]).length;
+    return `${label} replaced (${count} row${count === 1 ? '' : 's'})`;
+  }
+  if (edit.old_value === edit.new_value) return `${label} confirmed as “${edit.new_value ?? 'none'}”`;
+  return `${label}: “${edit.old_value ?? 'not found'}” → ${edit.new_value === null ? 'cleared' : `“${edit.new_value}”`}`;
+}
+
+function EditHistory({ documentId }: { documentId: string }) {
+  const history = useQuery({ queryKey: queryKeys.edits(documentId), queryFn: () => api.getEdits(documentId) });
+  const edits = history.data?.edits ?? [];
+  if (history.isLoading || edits.length === 0) return null;
+  return (
+    <details className="rounded-md border border-border bg-card" data-testid="section-edit-history">
+      <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold"><History size={15} className="text-primary" />Correction history <span className="text-xs font-normal text-muted-foreground">({edits.length})</span></summary>
+      <ol className="divide-y divide-border border-t border-border">
+        {[...edits].reverse().map((edit, i) => (
+          <li key={i} className="flex flex-col gap-0.5 px-4 py-2.5 text-xs sm:flex-row sm:justify-between sm:gap-4">
+            <span className="min-w-0 break-words">{describeEdit(edit)}</span>
+            <time className="shrink-0 text-[10px] text-muted-foreground" dateTime={edit.created_at}>{formatDate(edit.created_at, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 function PagePreview({ documentId, page, zoom }: { documentId: string; page: number; zoom: number }) {
   const preview = useQuery({
     queryKey: ['documents', 'preview', documentId, page],
@@ -77,6 +109,7 @@ export default function DocumentDetailPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'delete' | 'reprocess' | null>(null);
+  const [discardCorrections, setDiscardCorrections] = useState(false);
 
   const detail = useQuery({
     queryKey: queryKeys.document(id),
@@ -87,6 +120,8 @@ export default function DocumentDetailPage() {
   const ready = Boolean(doc && isProcessed(doc.status));
   const extraction = useQuery({ queryKey: queryKeys.extraction(id), queryFn: () => api.getExtraction(id), enabled: ready });
   const data = extraction.data;
+  // Only needed to tell the user whether a retry can help.
+  const failedJob = useQuery({ queryKey: queryKeys.status(id), queryFn: () => api.getStatus(id), enabled: doc?.status === 'FAILED' }).data?.job;
 
   const serverValues = useMemo(() => Object.fromEntries((data?.fields ?? []).map((f) => [f.name, f.value ?? ''])), [data]);
   const serverRows = useMemo(() => (data ? rowsFrom(data) : []), [data]);
@@ -104,7 +139,7 @@ export default function DocumentDetailPage() {
   const rowsChanged = JSON.stringify(rows.map(({ key, confidence, ...r }) => r)) !== JSON.stringify(serverRows.map(({ key, confidence, ...r }) => r));
   const typeChanged = Boolean(data && docType && docType !== data.document_type);
   const dirty = changedFields.length > 0 || rowsChanged || typeChanged;
-  const editedCount = (data?.fields ?? []).filter((f) => f.is_user_edited).length + (data?.document_type_user_edited ? 1 : 0);
+  const editedCount = (data?.fields ?? []).filter((f) => f.is_user_edited).length + (data?.document_type_user_edited ? 1 : 0) + (data?.line_items_user_edited ? 1 : 0);
 
   const invalidateLists = () => {
     void queryClient.invalidateQueries({ queryKey: ['documents', 'list'] });
@@ -128,6 +163,7 @@ export default function DocumentDetailPage() {
     onSuccess: (result) => {
       queryClient.setQueryData(queryKeys.extraction(id), result);
       void queryClient.invalidateQueries({ queryKey: queryKeys.document(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.edits(id) });
       invalidateLists();
       notify(result.needs_review ? 'Saved. Some values still need review.' : 'Saved. The document is ready.');
     },
@@ -146,10 +182,12 @@ export default function DocumentDetailPage() {
   });
 
   const reprocess = useMutation({
-    mutationFn: () => api.reprocess(id),
+    mutationFn: (discard: boolean) => api.reprocess(id, { discardCorrections: discard }),
     onSuccess: () => {
       setConfirm(null);
       queryClient.removeQueries({ queryKey: queryKeys.extraction(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.edits(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.document(id) });
       invalidateLists();
       notify('Reprocessing started.', 'info');
@@ -202,7 +240,7 @@ export default function DocumentDetailPage() {
           {ready && <span className="hidden text-[10px] text-muted-foreground sm:inline" data-testid="text-save-state">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>}
           {ready && <Button variant="outline" onClick={exportJson} testid="button-export-json"><FileJson2 size={15} />JSON</Button>}
           <Button variant="outline" onClick={() => void download()} testid="button-download-document"><Download size={15} />Original</Button>
-          {!isInProgress(doc.status) && <Button variant="outline" onClick={() => setConfirm('reprocess')} testid="button-reprocess"><RotateCcw size={15} />Reprocess</Button>}
+          {!isInProgress(doc.status) && <Button variant="outline" onClick={() => { setDiscardCorrections(false); setConfirm('reprocess'); }} testid="button-reprocess"><RotateCcw size={15} />Reprocess</Button>}
           {ready && <Button onClick={() => save.mutate()} disabled={!dirty || save.isPending} testid="button-save-document">{save.isPending ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />}Save</Button>}
           <Button variant="ghost" className="text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40" onClick={() => setConfirm('delete')} testid="button-delete-document"><Trash2 size={16} /><span className="sm:sr-only">Delete</span></Button>
         </div>
@@ -225,8 +263,8 @@ export default function DocumentDetailPage() {
       )}
       {doc.status === 'FAILED' && (
         <div className="mb-5 flex flex-col gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between" data-testid="banner-failed">
-          <span className="flex items-start gap-2"><AlertTriangle size={17} className="mt-0.5 shrink-0" /><span><b>Processing failed.</b> {doc.error_message}</span></span>
-          <Button variant="outline" onClick={() => reprocess.mutate()} disabled={reprocess.isPending} testid="button-retry-processing"><RotateCcw size={14} />Retry</Button>
+          <span className="flex items-start gap-2"><AlertTriangle size={17} className="mt-0.5 shrink-0" /><span><b>Processing failed.</b> {doc.error_message}{failedJob?.retryable === false && <span className="mt-1 block text-xs" data-testid="text-not-retryable">Retrying the same file will most likely fail again; upload a different copy instead.</span>}</span></span>
+          <Button variant="outline" onClick={() => reprocess.mutate(false)} disabled={reprocess.isPending} testid="button-retry-processing"><RotateCcw size={14} />Retry</Button>
         </div>
       )}
       {data?.needs_review && (
@@ -321,7 +359,7 @@ export default function DocumentDetailPage() {
 
               <section className="rounded-md border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-                  <div><h2 className="text-sm font-semibold">Line items</h2><p className="mt-1 text-[10px] text-muted-foreground">{rows.length ? 'Edit rows or add missing ones.' : 'No line items were detected.'}</p></div>
+                  <div><h2 className="flex items-center gap-1.5 text-sm font-semibold">Line items{data.line_items_user_edited && <span className="rounded-sm bg-accent px-1.5 py-0.5 text-[9px] font-normal text-primary">Edited</span>}</h2><p className="mt-1 text-[10px] text-muted-foreground">{rows.length ? 'Edit rows or add missing ones.' : 'No line items were detected.'}</p></div>
                   <Button variant="outline" className="px-2.5 py-1.5 text-[11px]" onClick={() => setRows((r) => [...r, { key: `new-${Date.now()}`, description: '', quantity: '', unit_price: '', total: '', confidence: null }])} testid="button-add-line-item"><Plus size={13} />Add row</Button>
                 </div>
                 {rows.length > 0 && (
@@ -354,6 +392,7 @@ export default function DocumentDetailPage() {
                 <span className="font-semibold text-foreground">About these values</span>
                 <p className="mt-1">Fields were extracted with deterministic rules{doc.pages.some((p) => p.text_source === 'OCR') ? ' from OCR text' : ' from the PDF text layer'}. Confidence is a heuristic score (overall {formatPercent(data.overall_confidence)}), not measured accuracy. Always check figures against the document.</p>
               </div>
+              <EditHistory documentId={id} />
             </>
           )}
         </div>
@@ -376,8 +415,14 @@ export default function DocumentDetailPage() {
       )}
       {confirm === 'reprocess' && (
         <Modal title="Reprocess this document?" onClose={() => setConfirm(null)}>
-          <p className="text-sm leading-6 text-muted-foreground">The file is read again and every extracted value is replaced.{editedCount > 0 && <b className="text-foreground"> Your {editedCount} manual correction{editedCount === 1 ? '' : 's'} will be lost.</b>}{dirty && ' Unsaved changes will be discarded.'}</p>
-          <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button><Button disabled={reprocess.isPending} onClick={() => reprocess.mutate()} testid="button-confirm-reprocess">{reprocess.isPending ? 'Starting…' : 'Reprocess'}</Button></div>
+          <p className="text-sm leading-6 text-muted-foreground">The file is read and extracted again.{editedCount > 0 && <> Your {editedCount} saved correction{editedCount === 1 ? ' is' : 's are'} <b className="text-foreground">re-applied</b> on top of the new extraction.</>}{dirty && ' Unsaved changes will be discarded.'}</p>
+          {editedCount > 0 && (
+            <label className="mt-3 flex min-h-11 items-start gap-2.5 rounded-sm border border-border p-3 text-xs leading-5">
+              <input type="checkbox" checked={discardCorrections} onChange={(e) => setDiscardCorrections(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#316c65]" data-testid="checkbox-discard-corrections" />
+              <span><b>Discard my corrections</b> and show only what is extracted from the file. They stay in the correction history.</span>
+            </label>
+          )}
+          <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button><Button variant={discardCorrections ? 'danger' : 'primary'} disabled={reprocess.isPending} onClick={() => reprocess.mutate(discardCorrections)} testid="button-confirm-reprocess">{reprocess.isPending ? 'Starting…' : 'Reprocess'}</Button></div>
         </Modal>
       )}
     </div>

@@ -402,6 +402,11 @@ upload → validate (ext + magic bytes + size) → store original → DB row (UP
 | D45 | Analytics are aggregated per currency in Python over the workspace's rows; only COMPLETED/NEEDS_REVIEW documents count toward money | Never mixes currencies; workspaces are capped, so this is cheap and portable |
 | D46 | "Ask your data" stays visible but clearly marked *Soon* with no fake answers | The brief forbids fake AI; RAG is out of MVP scope |
 | D47 | Upload/reprocess limiter is in-memory, single instance; processing concurrency bounded by a process-wide semaphore | Matches the single-instance free tier; documented as a limitation |
+| D48 | **Supersedes D35.** Corrections are stored in `extraction_edits` (old → new, including confirmations) and re-applied after every re-extraction, before validation; `POST /process?discard_corrections=true` records a `reset` instead | Reprocessing must not silently lose manual work (brief Part 6). Keeping the source of truth outside the extraction rows means corrections survive even a failed reprocess |
+| D49 | Duplicate upload (same SHA-256 in the *same* workspace) → 409 `duplicate_document` with the existing ID; `allow_duplicate=true` keeps both. Other workspaces are never consulted | Clear, reversible policy; no cross-visitor information leak (supersedes D15's "allowed silently") |
+| D50 | Maintenance loop (every 15 min, plus once at startup): retention, interrupted-job recovery (`interrupted`, retryable), orphaned-object and partial-write sweep with a grace of 2× the stale timeout | Jobs run in-process (D47), so a restart loses them; the UI must offer a retry instead of "processing" forever. Startup recovery assumes one instance (`RECOVER_JOBS_ON_STARTUP`) |
+| D51 | Failure codes are split into permanent (corrupt/encrypted/too many pages/no text…) and retryable; the status API exposes `job.retryable` | The UI can say when retrying the same file is pointless |
+| D52 | Migration 0003 is additive only (new table + two composite indexes); verified upgrade on a populated PostgreSQL copy, downgrade, re-upgrade | Never touches existing rows; safe to run on the live database |
 
 ## Phase log
 

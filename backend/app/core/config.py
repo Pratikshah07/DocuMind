@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     )
     # A QUEUED/RUNNING job older than this is treated as dead (e.g. server restarted mid-run).
     processing_stale_after_seconds: int = 15 * 60
+    # Housekeeping loop (retention, stale-job recovery, orphaned-file sweep). 0 disables it.
+    maintenance_interval_seconds: int = Field(default=15 * 60, ge=0)
+    # At startup, fail every QUEUED/RUNNING job: jobs run in this process, so after a restart
+    # none can still be running. Only correct with ONE app instance (see D47); turn off otherwise.
+    recover_jobs_on_startup: bool = True
 
     # --- Extraction & validation (Phase 4) ---
     # How to read ambiguous numeric dates like 03/04/2025 (always flagged for review either way).

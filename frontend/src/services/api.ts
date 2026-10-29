@@ -99,6 +99,8 @@ export type ProcessingJob = {
   finished_at: string | null;
   duration_ms: number | null;
   error_code: string | null;
+  /** Whether retrying the same file can help; null when the job did not fail. */
+  retryable: boolean | null;
   created_at: string;
 };
 
@@ -147,9 +149,18 @@ export type Extraction = {
   document_type_user_edited: boolean;
   overall_confidence: number;
   needs_review: boolean;
+  line_items_user_edited: boolean;
   fields: ExtractedField[];
   line_items: LineItem[];
   warnings: ValidationWarning[];
+};
+
+export type ExtractionEdit = {
+  kind: 'edit' | 'reset';
+  field: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
 };
 
 export type LineItemInput = {
@@ -212,12 +223,21 @@ export const api = {
   listDocuments: (filters: DocumentFilters = {}) => apiJson<DocumentList>('/documents', { query: filters }),
   getDocument: (id: string) => apiJson<DocumentDetail>(`/documents/${id}`),
   getStatus: (id: string) => apiJson<DocumentStatusResponse>(`/documents/${id}/status`),
-  upload: (file: File) => {
+  upload: (file: File, options: { allowDuplicate?: boolean } = {}) => {
     const form = new FormData();
     form.append('file', file, file.name);
-    return apiJson<UploadResponse>('/documents/upload', { method: 'POST', body: form, timeoutMs: 120_000 });
+    return apiJson<UploadResponse>('/documents/upload', {
+      method: 'POST',
+      body: form,
+      timeoutMs: 120_000,
+      query: { allow_duplicate: options.allowDuplicate ? 'true' : undefined },
+    });
   },
-  reprocess: (id: string) => apiJson<DocumentStatusResponse>(`/documents/${id}/process`, { method: 'POST' }),
+  reprocess: (id: string, options: { discardCorrections?: boolean } = {}) =>
+    apiJson<DocumentStatusResponse>(`/documents/${id}/process`, {
+      method: 'POST',
+      query: { discard_corrections: options.discardCorrections ? 'true' : undefined },
+    }),
   deleteDocument: (id: string) => apiJson<void>(`/documents/${id}`, { method: 'DELETE' }),
   deleteAllDocuments: () => apiJson<{ deleted: number }>('/documents', { method: 'DELETE' }),
   downloadOriginal: (id: string) => apiBlob(`/documents/${id}/file`, { timeoutMs: 120_000 }),
@@ -226,6 +246,7 @@ export const api = {
   getExtraction: (id: string) => apiJson<Extraction>(`/documents/${id}/extraction`),
   updateExtraction: (id: string, update: ExtractionUpdate) =>
     apiJson<Extraction>(`/documents/${id}/extraction`, { method: 'PATCH', json: update }),
+  getEdits: (id: string) => apiJson<{ document_id: string; edits: ExtractionEdit[] }>(`/documents/${id}/edits`),
 
   analyticsOverview: () => apiJson<AnalyticsOverview>('/analytics/overview'),
   analyticsSpending: () => apiJson<Spending>('/analytics/spending'),
@@ -240,5 +261,6 @@ export const queryKeys = {
   document: (id: string) => ['documents', 'detail', id] as const,
   status: (id: string) => ['documents', 'status', id] as const,
   extraction: (id: string) => ['documents', 'extraction', id] as const,
+  edits: (id: string) => ['documents', 'edits', id] as const,
   analytics: (part: 'overview' | 'spending' | 'vendors') => ['analytics', part] as const,
 };

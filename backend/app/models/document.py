@@ -38,8 +38,13 @@ Money = Numeric(14, 2)
 
 class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "documents"
-    # Default list sort is newest-first.
-    __table_args__ = (Index("ix_documents_created_at", "created_at"),)
+    __table_args__ = (
+        # Default list sort is newest-first.
+        Index("ix_documents_created_at", "created_at"),
+        # List queries are "this workspace, newest first"; duplicate checks "this workspace, this hash".
+        Index("ix_documents_workspace_created", "workspace_id", "created_at"),
+        Index("ix_documents_workspace_sha256", "workspace_id", "sha256"),
+    )
 
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
@@ -109,6 +114,12 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     jobs: Mapped[list["ProcessingJob"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
+    edits: Mapped[list["ExtractionEdit"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ExtractionEdit.created_at",
     )
 
 
@@ -181,3 +192,23 @@ class ValidationWarning(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     document: Mapped[Document] = relationship(back_populates="warnings")
+
+
+class ExtractionEdit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Audit trail of user corrections, and the source of corrections that survive reprocessing.
+
+    kind "edit": ``field`` (a field name, ``document_type`` or ``line_items``) changed from
+    ``old_value`` to ``new_value`` (NULL = cleared; line items are a JSON list).
+    kind "reset": the user reprocessed with "discard my corrections"; edits before it no longer apply.
+    """
+
+    __tablename__ = "extraction_edits"
+    __table_args__ = (Index("ix_extraction_edits_document_created", "document_id", "created_at"),)
+
+    document_id: Mapped[uuid.UUID] = _document_fk(index=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="edit")
+    field: Mapped[str | None] = mapped_column(String(64))
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+
+    document: Mapped[Document] = relationship(back_populates="edits")

@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session, sessionmaker
 os.environ["ENVIRONMENT"] = "test"
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("LOG_FORMAT", "console")
+# Tests call the maintenance steps directly; no background loop against the test database.
+os.environ["MAINTENANCE_INTERVAL_SECONDS"] = "0"
 
 from app.api.deps import get_ocr_service  # noqa: E402
 from app.core.config import Settings, get_settings  # noqa: E402

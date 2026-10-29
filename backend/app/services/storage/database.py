@@ -7,7 +7,8 @@ independently of the caller's transaction, just like writing to disk.
 """
 
 import io
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from typing import BinaryIO
 
 from sqlalchemy import delete, select
@@ -59,3 +60,9 @@ class DatabaseStorage(StorageBackend):
         validate_key(key)
         with self.session_factory() as db:
             return db.scalar(select(StoredFile.key).where(StoredFile.key == key)) is not None
+
+    def list_objects(self) -> Iterator[tuple[str, datetime]]:
+        with self.session_factory() as db:
+            rows = db.execute(select(StoredFile.key, StoredFile.created_at)).all()
+        for key, created in rows:
+            yield key, created if created.tzinfo else created.replace(tzinfo=UTC)

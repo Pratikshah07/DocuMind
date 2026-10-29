@@ -4,7 +4,13 @@ from fastapi import APIRouter
 
 from app.api.deps import ExtractionServiceDep, SettingsDep
 from app.core.errors import error_responses
-from app.schemas.extraction import DocumentExtractionResponse, ExtractionUpdateRequest, build_response
+from app.schemas.extraction import (
+    DocumentExtractionResponse,
+    ExtractionEditView,
+    ExtractionHistoryResponse,
+    ExtractionUpdateRequest,
+    build_response,
+)
 from app.services.extraction_service import validation_config
 
 router = APIRouter(prefix="/documents", tags=["extraction"])
@@ -47,3 +53,22 @@ def update_extraction(
 ) -> DocumentExtractionResponse:
     document, outcome = service.update(document_id, body.to_update())
     return build_response(document, outcome, validation_config(settings))
+
+
+@router.get(
+    "/{document_id}/edits",
+    response_model=ExtractionHistoryResponse,
+    summary="Correction history",
+    description=(
+        "Every correction made to this document (oldest first), with the value before and after. "
+        "Reprocessing re-applies the latest correction per field made after the last `reset`."
+    ),
+    responses=error_responses(404, 422),
+)
+def get_extraction_history(
+    document_id: uuid.UUID, service: ExtractionServiceDep
+) -> ExtractionHistoryResponse:
+    edits = service.history(document_id)
+    return ExtractionHistoryResponse(
+        document_id=document_id, edits=[ExtractionEditView.model_validate(e) for e in edits]
+    )

@@ -4,6 +4,8 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
@@ -70,3 +72,18 @@ class LocalStorage(StorageBackend):
 
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
+
+    def list_objects(self) -> Iterator[tuple[str, datetime]]:
+        for path in self.root.rglob("*"):
+            if path.is_file() and not path.name.startswith(".upload-"):
+                key = path.relative_to(self.root).as_posix()
+                yield key, datetime.fromtimestamp(path.stat().st_mtime, UTC)
+
+    def cleanup_temporary(self, older_than: datetime) -> int:
+        # A crash between mkstemp and os.replace leaves ".upload-*.tmp" behind.
+        removed = 0
+        for path in self.root.rglob(".upload-*.tmp"):
+            if datetime.fromtimestamp(path.stat().st_mtime, UTC) < older_than:
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed

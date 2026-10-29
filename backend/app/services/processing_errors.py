@@ -21,3 +21,24 @@ def corrupt_pdf(detail: str | None = None) -> ProcessingError:
 
 def corrupt_image(detail: str | None = None) -> ProcessingError:
     return ProcessingError("corrupt_image", "The image file is damaged and could not be read.", detail=detail)
+
+
+# Failures that will happen again on retry with the same file: the user must upload a different file.
+# Everything else (OCR engine trouble, crashes, interrupted runs, stale jobs) is worth retrying.
+PERMANENT_ERROR_CODES = frozenset(
+    {
+        "corrupt_pdf",
+        "corrupt_image",
+        "encrypted_pdf",
+        "empty_document",
+        "too_many_pages",
+        "image_too_large",
+        "unsupported_file_type",
+        "no_text_found",
+        "file_missing",
+    }
+)
+
+
+def is_retryable(code: str | None) -> bool | None:
+    return None if code is None else code not in PERMANENT_ERROR_CODES

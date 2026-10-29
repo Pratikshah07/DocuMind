@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.enums import DocumentStatus, JobStatus
+from app.services.processing_errors import is_retryable
 
 
 class ProcessingJobOut(BaseModel):
@@ -18,6 +19,11 @@ class ProcessingJobOut(BaseModel):
     duration_ms: int | None
     error_code: str | None = Field(description="Stable machine-readable failure code, e.g. `corrupt_pdf`.")
     created_at: datetime
+
+    @computed_field(description="Whether retrying the same file can help (null when the job did not fail).")
+    @property
+    def retryable(self) -> bool | None:
+        return is_retryable(self.error_code)
 
 
 class DocumentStatusResponse(BaseModel):

@@ -11,6 +11,7 @@ from app.core.errors import ConflictError, NotFoundError
 from app.core.workspace import LOCAL_WORKSPACE
 from app.db.base import utcnow
 from app.models import Document, JobStatus, ProcessingJob
+from app.services.corrections import record_reset
 from app.services.jobs import JobRunner
 from app.services.pipeline import DocumentProcessor
 
@@ -40,7 +41,7 @@ class ProcessingService:
         self.processor = processor
         self.stale_after = timedelta(seconds=stale_after_seconds)
 
-    def enqueue(self, document_id: uuid.UUID) -> ProcessingJob:
+    def enqueue(self, document_id: uuid.UUID, *, discard_corrections: bool = False) -> ProcessingJob:
         # Row lock (PostgreSQL) so two concurrent requests can't both queue a job.
         document = self.db.scalar(
             select(Document)
@@ -68,6 +69,8 @@ class ProcessingService:
         )
         job = ProcessingJob(document_id=document_id, status=JobStatus.QUEUED, attempt=(attempts or 0) + 1)
         self.db.add(job)
+        if discard_corrections:  # same transaction as the job: never one without the other
+            record_reset(self.db, document_id)
         self.db.commit()
 
         self.runner.submit(self.processor.run, job.id)

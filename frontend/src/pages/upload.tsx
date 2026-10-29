@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, Check, CircleAlert, CloudUpload, FileText, LoaderCircle, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { ArrowUpRight, Check, CircleAlert, CloudUpload, Copy, FileText, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { Link } from 'wouter';
 import { PageHeader, StatusBadge } from '@/components/documind';
 import { ApiError, errorMessage } from '@/lib/api-client';
@@ -10,14 +10,22 @@ import { api, isInProgress, queryKeys, type DocumentStatus } from '@/services/ap
 
 const EXTENSIONS = /\.(pdf|png|jpe?g)$/i;
 const SAMPLES_URL = 'https://github.com/Pratikshah07/DocuMind/tree/main/backend/samples';
+// Synthetic documents bundled with the app (frontend/public/samples), so visitors can try it without a file.
+const BUNDLED_SAMPLES = [
+  { file: '01_invoice_standard.pdf', label: 'Clean invoice', note: 'text PDF' },
+  { file: '02_receipt_coffee.pdf', label: 'Coffee receipt', note: 'text PDF' },
+  { file: '07_totals_dont_add_up.pdf', label: 'Invoice with an error', note: 'needs review' },
+  { file: '12_scanned_invoice.pdf', label: 'Scanned invoice', note: 'OCR' },
+];
 
 type QueueItem = {
   key: string;
   name: string;
   size: number;
   documentId?: string;
-  state: 'waiting' | 'uploading' | 'uploaded' | 'rejected';
+  state: 'waiting' | 'uploading' | 'uploaded' | 'rejected' | 'duplicate';
   error?: string;
+  existingId?: string; // duplicate: the document already in this workspace
 };
 
 function StageSteps({ status }: { status: DocumentStatus }) {
@@ -37,6 +45,9 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [loadingSample, setLoadingSample] = useState<string | null>(null);
+  // Files waiting on a duplicate decision ("Upload anyway").
+  const pendingFiles = useRef(new Map<string, File>());
   const meta = useQuery({ queryKey: queryKeys.meta, queryFn: api.meta, staleTime: Infinity });
   const maxBytes = meta.data?.max_upload_bytes ?? 15 * 1024 * 1024;
 
@@ -76,6 +87,12 @@ export default function UploadPage() {
           update(item.key, { state: 'uploaded', documentId: response.id });
           uploaded += 1;
         } catch (error) {
+          if (error instanceof ApiError && error.code === 'duplicate_document') {
+            const existingId = (error.details as { existing_document_id?: string } | undefined)?.existing_document_id;
+            pendingFiles.current.set(item.key, files[index]);
+            update(item.key, { state: 'duplicate', existingId });
+            continue;
+          }
           update(item.key, { state: 'rejected', error: errorMessage(error) });
           if (error instanceof ApiError && error.code === 'rate_limited') {
             items.slice(index + 1).filter((i) => i.state === 'waiting').forEach((i) => update(i.key, { state: 'rejected', error: 'Not uploaded: rate limit reached.' }));
@@ -88,6 +105,35 @@ export default function UploadPage() {
       void queryClient.invalidateQueries({ queryKey: ['documents'] });
       void queryClient.invalidateQueries({ queryKey: ['analytics'] });
       if (uploaded) notify(`${uploaded} file${uploaded === 1 ? '' : 's'} uploaded. Processing has started.`);
+    }
+  };
+
+  const uploadAnyway = async (item: QueueItem) => {
+    const file = pendingFiles.current.get(item.key);
+    if (!file) return;
+    update(item.key, { state: 'uploading', existingId: undefined });
+    try {
+      const response = await api.upload(file, { allowDuplicate: true });
+      pendingFiles.current.delete(item.key);
+      update(item.key, { state: 'uploaded', documentId: response.id });
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    } catch (error) {
+      update(item.key, { state: 'rejected', error: errorMessage(error) });
+    }
+  };
+
+  const trySample = async (name: string) => {
+    setLoadingSample(name);
+    try {
+      const response = await fetch(`/samples/${name}`);
+      if (!response.ok) throw new Error('missing');
+      const blob = await response.blob();
+      await startUploads([new File([blob], name, { type: 'application/pdf' })]);
+    } catch {
+      notify('The sample could not be loaded. Download it from GitHub instead.', 'error');
+    } finally {
+      setLoadingSample(null);
     }
   };
 
@@ -127,8 +173,20 @@ export default function UploadPage() {
             {meta.data?.demo_mode
               ? `Public demo: please upload only sample or synthetic documents, not real personal or financial records. Your uploads are visible only in this browser and are deleted automatically after ${meta.data.retention_hours} hours.`
               : 'Files are stored on this DocuMind server and processed there.'}{' '}
-            Need a file? <a href={SAMPLES_URL} target="_blank" rel="noreferrer" className="font-semibold text-primary underline" data-testid="link-samples">Download synthetic samples</a>.
+            More test files: <a href={SAMPLES_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center font-semibold text-primary underline sm:min-h-0" data-testid="link-samples">all synthetic samples on GitHub</a>.
           </span>
+        </div>
+
+        <div className="mt-4" data-testid="section-try-sample">
+          <div className="flex items-center gap-2 text-xs font-semibold"><Sparkles size={14} className="text-primary" />No file handy? Try a synthetic sample</div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {BUNDLED_SAMPLES.map((sample) => (
+              <button key={sample.file} type="button" disabled={busy || loadingSample !== null} onClick={() => void trySample(sample.file)} className="flex min-h-11 items-center justify-between gap-2 rounded-sm border border-border bg-background px-3 py-2 text-left text-xs hover:border-primary/60 hover:bg-muted/30 disabled:opacity-60" data-testid={`button-sample-${sample.file}`}>
+                <span className="min-w-0"><span className="block truncate font-semibold">{sample.label}</span><span className="block text-[10px] text-muted-foreground">{sample.note}</span></span>
+                {loadingSample === sample.file ? <LoaderCircle size={14} className="shrink-0 animate-spin text-primary" /> : <CloudUpload size={14} className="shrink-0 text-primary" />}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -136,7 +194,7 @@ export default function UploadPage() {
         <div className="flex items-center justify-between border-b border-border px-4 py-4 sm:px-5">
           <div><h2 className="text-sm font-semibold">This session's uploads</h2><p className="mt-1 text-[10px] text-muted-foreground">{queue.length ? 'Live status from the server. You can leave this page; processing continues.' : 'Files you upload will appear here.'}</p></div>
           {queue.some((i) => i.state === 'rejected' || (i.documentId && !isInProgress(statusById.get(i.documentId)?.status ?? 'UPLOADED'))) && (
-            <button type="button" onClick={() => setQueue((items) => items.filter((i) => i.state !== 'rejected' && (!i.documentId || isInProgress(statusById.get(i.documentId)?.status ?? 'UPLOADED'))))} className="text-[10px] font-semibold text-muted-foreground hover:text-foreground" data-testid="button-clear-completed">Clear finished</button>
+            <button type="button" onClick={() => setQueue((items) => items.filter((i) => i.state !== 'rejected' && (!i.documentId || isInProgress(statusById.get(i.documentId)?.status ?? 'UPLOADED'))))} className="min-h-10 text-[10px] font-semibold text-muted-foreground hover:text-foreground" data-testid="button-clear-completed">Clear finished</button>
           )}
         </div>
         {queue.length === 0 ? (
@@ -146,11 +204,12 @@ export default function UploadPage() {
             {queue.map((item) => {
               const status = item.documentId ? statusById.get(item.documentId) : undefined;
               const failed = item.state === 'rejected' || status?.status === 'FAILED';
+              const duplicate = item.state === 'duplicate';
               const done = status && !isInProgress(status.status);
               return (
                 <div key={item.key} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5" data-testid={`upload-item-${item.documentId ?? item.key}`}>
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-sm border border-border bg-background text-primary">
-                    {failed ? <CircleAlert size={16} className="text-red-700" /> : done ? <Check size={16} /> : <LoaderCircle size={16} className="animate-spin" />}
+                    {duplicate ? <Copy size={16} className="text-[#947037]" /> : failed ? <CircleAlert size={16} className="text-red-700" /> : done ? <Check size={16} /> : <LoaderCircle size={16} className="animate-spin" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold">{item.name}</div>
@@ -158,6 +217,7 @@ export default function UploadPage() {
                       {item.state === 'waiting' && 'Waiting to upload'}
                       {item.state === 'uploading' && `Uploading ${formatBytes(item.size)}…`}
                       {item.state === 'rejected' && <span className="text-red-700 dark:text-red-300">{item.error}</span>}
+                      {duplicate && <span className="text-[#7d5d27] dark:text-[#e2bd7a]" data-testid="text-duplicate">This file is already in your workspace, so it was not uploaded again.</span>}
                       {item.state === 'uploaded' && (status ? (status.status === 'FAILED' ? <span className="text-red-700 dark:text-red-300">{status.error_message}</span> : STATUS_LABEL[status.status]) : 'Uploaded · waiting for status')}
                     </div>
                     {status && isInProgress(status.status) && <StageSteps status={status.status} />}
@@ -167,8 +227,14 @@ export default function UploadPage() {
                     {item.documentId && (
                       <Link href={`/app/documents/${item.documentId}`} className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary" data-testid={`link-open-${item.documentId}`}>Open <ArrowUpRight size={12} /></Link>
                     )}
-                    {item.state === 'rejected' && (
-                      <button type="button" aria-label="Dismiss" onClick={() => setQueue((items) => items.filter((i) => i.key !== item.key))} className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+                    {duplicate && item.existingId && (
+                      <Link href={`/app/documents/${item.existingId}`} className="inline-flex min-h-10 items-center gap-1 text-[11px] font-semibold text-primary" data-testid="link-open-existing">Open existing <ArrowUpRight size={12} /></Link>
+                    )}
+                    {duplicate && (
+                      <button type="button" onClick={() => void uploadAnyway(item)} className="min-h-10 rounded-sm border border-border px-2.5 text-[11px] font-semibold hover:bg-muted" data-testid="button-upload-anyway">Upload anyway</button>
+                    )}
+                    {(item.state === 'rejected' || duplicate) && (
+                      <button type="button" aria-label="Dismiss" onClick={() => setQueue((items) => items.filter((i) => i.key !== item.key))} className="grid h-10 w-10 place-items-center text-muted-foreground hover:text-foreground"><X size={14} /></button>
                     )}
                   </div>
                 </div>
@@ -179,7 +245,7 @@ export default function UploadPage() {
       </section>
 
       <div className="mt-5 flex justify-end">
-        <Link href="/app/documents" className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline" data-testid="link-upload-documents">View all documents <RotateCcw size={13} /></Link>
+        <Link href="/app/documents" className="inline-flex min-h-11 items-center gap-2 text-xs font-semibold text-primary hover:underline" data-testid="link-upload-documents">View all documents <RotateCcw size={13} /></Link>
       </div>
     </div>
   );

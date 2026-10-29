@@ -222,12 +222,102 @@ def test_patch_is_idempotent(client: TestClient) -> None:
     assert len(second["fields"]) == 12 and len(second["line_items"]) == 2
 
 
-def test_reprocessing_replaces_user_edits(client: TestClient) -> None:
+def test_reprocessing_keeps_user_corrections(client: TestClient) -> None:
     document_id = upload_text(client, T.MISSING_NUMBER_AND_TAX)
-    client.patch(f"/api/documents/{document_id}/extraction", json={"fields": {"invoice_number": "AO-4471"}})
+    patched = client.patch(
+        f"/api/documents/{document_id}/extraction",
+        json={
+            "fields": {"invoice_number": "AO-4471", "tax": "0"},
+            "document_type": "INVOICE",
+            "line_items": [
+                {"description": "Consulting", "quantity": "2", "unit_price": "50", "total": "100"}
+            ],
+        },
+    ).json()
 
     assert client.post(f"/api/documents/{document_id}/process").status_code == 202
 
     body = client.get(f"/api/documents/{document_id}/extraction").json()
-    assert by_name(body)["invoice_number"]["status"] == "missing"  # fresh extraction (D35)
+    fields = by_name(body)
+    assert fields["invoice_number"]["value"] == "AO-4471" and fields["invoice_number"]["is_user_edited"]
+    assert fields["invoice_number"]["method"] == "user"
+    assert fields["tax"]["normalized_value"] == 0
+    assert body["document_type_user_edited"] is True
+    assert body["line_items_user_edited"] is True
+    assert [i["description"] for i in body["line_items"]] == ["Consulting"]
+    # Validation ran again over the corrected values: same result as right after the PATCH.
+    assert body["status"] == patched["status"]
+    assert {w["code"] for w in body["warnings"]} == {w["code"] for w in patched["warnings"]}
+
+
+def test_reprocessing_can_discard_corrections(client: TestClient) -> None:
+    document_id = upload_text(client, T.MISSING_NUMBER_AND_TAX)
+    client.patch(f"/api/documents/{document_id}/extraction", json={"fields": {"invoice_number": "AO-4471"}})
+
+    response = client.post(f"/api/documents/{document_id}/process", params={"discard_corrections": "true"})
+    assert response.status_code == 202
+
+    body = client.get(f"/api/documents/{document_id}/extraction").json()
+    assert by_name(body)["invoice_number"]["status"] == "missing"  # as extracted from the file
+    assert body["line_items_user_edited"] is False
     assert body["status"] == "NEEDS_REVIEW"
+    # The discarded correction is still in the history, followed by the reset.
+    edits = client.get(f"/api/documents/{document_id}/edits").json()["edits"]
+    assert [(e["kind"], e["field"], e["old_value"], e["new_value"]) for e in edits] == [
+        ("edit", "invoice_number", None, "AO-4471"),
+        ("reset", None, None, None),
+    ]
+    # A later reprocess does not bring the discarded correction back.
+    client.post(f"/api/documents/{document_id}/process")
+    body = client.get(f"/api/documents/{document_id}/extraction").json()
+    assert by_name(body)["invoice_number"]["status"] == "missing"
+
+
+def test_corrections_survive_a_failed_reprocess(
+    client: TestClient, db_session: Session, fake_ocr, storage
+) -> None:
+    document_id = upload_text(client, T.MISSING_NUMBER_AND_TAX)
+    client.patch(f"/api/documents/{document_id}/extraction", json={"fields": {"invoice_number": "AO-4471"}})
+    original = db_session.get(Document, uuid.UUID(document_id)).storage_key
+    content = storage.open(original).read()
+
+    storage.delete(original)  # the next run fails: file_missing
+    client.post(f"/api/documents/{document_id}/process")
+    assert client.get(f"/api/documents/{document_id}/status").json()["status"] == "FAILED"
+
+    from io import BytesIO
+
+    storage.save(original, BytesIO(content))  # file back: the retry succeeds and re-applies the edit
+    client.post(f"/api/documents/{document_id}/process")
+    body = client.get(f"/api/documents/{document_id}/extraction").json()
+    assert by_name(body)["invoice_number"]["value"] == "AO-4471"
+
+
+def test_edit_history_records_old_and_new_values(client: TestClient) -> None:
+    document_id = upload_text(client, T.STANDARD_INVOICE)
+    client.patch(f"/api/documents/{document_id}/extraction", json={"fields": {"total": "4800.00"}})
+    client.patch(
+        f"/api/documents/{document_id}/extraction", json={"fields": {"total": "4,820.00", "due_date": ""}}
+    )
+    # Re-submitting the same value is a confirmation and is recorded too.
+    client.patch(f"/api/documents/{document_id}/extraction", json={"fields": {"total": "4,820.00"}})
+
+    edits = client.get(f"/api/documents/{document_id}/edits").json()["edits"]
+    assert [(e["field"], e["old_value"], e["new_value"]) for e in edits] == [
+        ("total", "4,820.00", "4800.00"),
+        ("total", "4800.00", "4,820.00"),
+        ("due_date", "17/04/2025", None),  # old value exactly as printed
+        ("total", "4,820.00", "4,820.00"),
+    ]
+
+
+def test_edit_history_is_private_to_the_workspace(client: TestClient) -> None:
+    headers = {"X-Workspace-Token": "a" * 40}
+    response = client.post(
+        "/api/documents/upload",
+        files={"file": ("x.pdf", make_text_pdf(T.STANDARD_INVOICE), "application/pdf")},
+        headers=headers,
+    )
+    document_id = response.json()["id"]
+    assert client.get(f"/api/documents/{document_id}/edits").status_code == 404  # other workspace
+    assert client.get(f"/api/documents/{document_id}/edits", headers=headers).status_code == 200

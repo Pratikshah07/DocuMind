@@ -10,7 +10,6 @@
 """
 
 import logging
-import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -32,9 +31,10 @@ from app.models import (
     LineItem,
     ValidationWarning,
 )
+from app.services import corrections
 from app.services import validation_service as validation
 from app.services.classification_service import DocumentClassifier, RuleBasedClassifier
-from app.services.extraction.parsers import DateOrder, parse_amount, parse_date
+from app.services.extraction.parsers import DateOrder
 from app.services.extraction.rules import FieldExtractor, RuleBasedExtractor
 from app.services.extraction.types import (
     FIELD_KINDS,
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 DOCUMENT_TYPE_FIELD = "document_type"
 EDITABLE_STATUSES = (DocumentStatus.COMPLETED, DocumentStatus.NEEDS_REVIEW)
-_MAX_TEXT = {"vendor_name": 255, "invoice_number": 100, "payment_method": 100}
+_MAX_TEXT = corrections.MAX_TEXT
 
 
 @dataclass
@@ -66,6 +66,7 @@ class ExtractionOutcome:
     effective: dict[str, float | None] = field(default_factory=dict)
     overall_confidence: float = 0.0
     needs_review: bool = True
+    line_items_user_edited: bool = False
 
     @property
     def status(self) -> DocumentStatus:
@@ -306,7 +307,19 @@ class ExtractionService:
 
     def get(self, document_id: uuid.UUID) -> tuple[Document, ExtractionOutcome]:
         document = self._load(document_id)
-        return document, load_outcome(document, self.config.validation)
+        outcome = load_outcome(document, self.config.validation)
+        outcome.line_items_user_edited = corrections.LINE_ITEMS in corrections.active_corrections(
+            self.db, document_id
+        )
+        return document, outcome
+
+    def history(self, document_id: uuid.UUID) -> list:
+        document = self.db.scalar(
+            select(Document.id).where(Document.id == document_id, Document.workspace_id == self.workspace_id)
+        )
+        if document is None:
+            raise NotFoundError("Document not found.", code="document_not_found")
+        return corrections.history(self.db, document_id)
 
     def update(self, document_id: uuid.UUID, update: ExtractionUpdate) -> tuple[Document, ExtractionOutcome]:
         document = self._load(document_id, for_update=True)
@@ -314,28 +327,43 @@ class ExtractionService:
         edited = set()
 
         errors = []
+        changes: list[tuple[str, str | None, str | None]] = []  # (field, old, new) for the audit trail
         for name, raw in update.fields.items():
             if name not in FIELD_KINDS:
                 errors.append({"field": name, "message": "Unknown field."})
                 continue
             try:
-                outcome.fields[name] = self._user_field(name, raw)
-                edited.add(name)
+                new = corrections.user_field(name, raw, self.config.date_order)
             except ValueError as exc:
                 errors.append({"field": name, "message": str(exc)})
+                continue
+            changes.append((name, outcome.fields[name].value, new.value))
+            outcome.fields[name] = new
+            edited.add(name)
         if errors:
             self.db.rollback()
             raise ValidationFailedError("Some values could not be accepted.", details=errors)
 
         if update.document_type is not None:
+            changes.append(
+                (corrections.DOCUMENT_TYPE, outcome.document_type.value, update.document_type.value)
+            )
             outcome.document_type = update.document_type
             outcome.type_confidence = 1.0
             outcome.type_user_edited = True
         if update.line_items is not None:
-            outcome.line_items = [
+            new_items = [
                 LineItemResult(i.description, i.quantity, i.unit_price, i.total, 1.0, None)
                 for i in update.line_items
             ]
+            changes.append(
+                (
+                    corrections.LINE_ITEMS,
+                    corrections.line_items_to_json(outcome.line_items),
+                    corrections.line_items_to_json(new_items),
+                )
+            )
+            outcome.line_items = new_items
 
         # Keep how-it-was-read issues for fields nobody touched; recompute every rule-level issue.
         kept = [
@@ -349,6 +377,10 @@ class ExtractionService:
         finalize(outcome, self.config.validation)
 
         write_outcome(self.db, document, outcome)
+        # Every submitted value is recorded, including confirmations (old == new): a confirmed value
+        # is a correction too and must survive reprocessing with its user-confirmed status.
+        for name, old, new in changes:
+            corrections.record_edit(self.db, document.id, name, old, new)
         document.status = outcome.status
         self.db.commit()
         logger.info(
@@ -362,36 +394,6 @@ class ExtractionService:
         )
         self.db.expire(document)
         return self.get(document_id)
-
-    def _user_field(self, name: str, raw: str | None) -> FieldResult:
-        kind = FIELD_KINDS[name]
-        text = raw.strip() if isinstance(raw, str) else None
-        if not text:  # explicit clear: the user says the document has no such value
-            return FieldResult(name, method=METHOD_USER, user_edited=True)
-        if kind == FieldKind.DATE:
-            parsed = parse_date(text, self.config.date_order)
-            if parsed is None:
-                raise ValueError("Not a valid date. Use YYYY-MM-DD.")
-            if parsed.ambiguous:
-                raise ValueError("Ambiguous date. Use YYYY-MM-DD.")
-            normalized: Any = parsed.value
-        elif kind == FieldKind.AMOUNT:
-            amount = parse_amount(text)
-            if amount is None or amount.ambiguous:
-                raise ValueError(
-                    "Not a valid amount. Use digits with an optional '.' decimal point, e.g. 1249.50."
-                )
-            normalized = amount.value
-        elif kind == FieldKind.CURRENCY:
-            if not re.fullmatch(r"[A-Za-z]{3}", text):
-                raise ValueError("Use a 3-letter ISO currency code, e.g. USD.")
-            normalized = text = text.upper()
-        else:
-            limit = _MAX_TEXT.get(name, 300)
-            if len(text) > limit:
-                raise ValueError(f"Too long (max {limit} characters).")
-            normalized = text
-        return FieldResult(name, text, normalized, 1.0, METHOD_USER, user_edited=True)
 
     def _load(self, document_id: uuid.UUID, *, for_update: bool = False) -> Document:
         query = (
