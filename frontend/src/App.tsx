@@ -76,7 +76,7 @@ function Landing() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-[68px] max-w-[1220px] items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
-          <Link href="/" className="shrink-0 text-foreground"><Wordmark large /></Link>
+          <Link href="/" className="inline-flex min-h-11 shrink-0 items-center text-foreground"><Wordmark large /></Link>
           <nav className="hidden items-center gap-8 text-[13px] font-medium text-muted-foreground md:flex"><a href="#how-it-works" className="hover:text-foreground">How it works</a><a href="#features" className="hover:text-foreground">Features</a><a href="#technology" className="hover:text-foreground">Technology</a></nav>
           <div className="flex items-center gap-2">
             <a href={REPO_URL} target="_blank" rel="noreferrer" className={`${buttonBase} h-10 w-10 px-0 text-muted-foreground hover:bg-muted hover:text-foreground sm:w-auto sm:px-3.5`} aria-label="Source code on GitHub" data-testid="link-github"><Github size={16} /><span className="hidden sm:inline">GitHub</span></a>
@@ -190,7 +190,7 @@ function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-[100dvh] bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
-        <div className="flex h-[68px] items-center border-b border-sidebar-border px-5"><Link href="/" className="text-foreground"><Wordmark large /></Link></div>
+        <div className="flex h-[68px] items-center border-b border-sidebar-border px-5"><Link href="/" className="inline-flex min-h-11 items-center text-foreground"><Wordmark large /></Link></div>
         <div className="px-3 pt-6"><div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace</div><NavLinks location={location} count={overview.data?.total_documents} /></div>
         <div className="mt-auto p-3">
           <div className="mb-3 rounded-sm border border-border/80 bg-card/50 p-3" data-testid="card-workspace-privacy"><div className="flex items-center gap-2 text-[11px] font-semibold"><LockKeyhole size={12} className="text-primary" />Private workspace</div><p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{privacyNote}</p></div>

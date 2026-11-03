@@ -79,7 +79,7 @@ export default function DashboardPage() {
             <section className="overflow-hidden rounded-md border border-border bg-card">
               <div className="flex items-center justify-between border-b border-border px-4 py-4 sm:px-5">
                 <div><h2 className="text-sm font-semibold">Recent documents</h2><p className="mt-1 text-[11px] text-muted-foreground">Latest uploads</p></div>
-                <Link href="/app/documents" className="text-[11px] font-semibold text-primary" data-testid="link-documents-view">View all</Link>
+                <Link href="/app/documents" className="inline-flex min-h-10 items-center text-[11px] font-semibold text-primary" data-testid="link-documents-view">View all</Link>
               </div>
               {recent.isLoading ? <div className="p-5"><LoadingRows /></div> : <div className="divide-y divide-border">{documents.map((d) => <RecentDocument key={d.id} document={d} />)}</div>}
             </section>
@@ -118,8 +118,8 @@ export default function DashboardPage() {
                     <AreaChart data={monthly} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                       <defs><linearGradient id="dashboard-spend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#316c65" stopOpacity={0.2} /><stop offset="100%" stopColor="#316c65" stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8e9e4" />
-                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#737c7d' }} />
-                      <YAxis axisLine={false} tickLine={false} width={60} tick={{ fontSize: 9, fill: '#8a9090' }} tickFormatter={(v) => formatMoney(Number(v), null)} />
+                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#6b7475' }} />
+                      <YAxis axisLine={false} tickLine={false} width={60} tick={{ fontSize: 11, fill: '#6b7475' }} tickFormatter={(v) => formatMoney(Number(v), null)} />
                       <Tooltip formatter={(v) => formatMoney(Number(v), primaryCurrency)} contentStyle={{ borderRadius: 4, border: '1px solid #dedfd9', fontSize: 12 }} />
                       <Area type="monotone" dataKey="total" stroke="#316c65" strokeWidth={2} fill="url(#dashboard-spend-fill)" />
                     </AreaChart>
@@ -138,7 +138,7 @@ export default function DashboardPage() {
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart><Pie data={distribution} dataKey="count" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={4} stroke="none">{distribution.map((item, i) => <Cell key={item.name} fill={colors[i % colors.length]} />)}</Pie><Tooltip /></PieChart>
                     </ResponsiveContainer>
-                    <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center"><div className="text-xl font-semibold">{o?.processed ?? 0}</div><div className="text-[9px] text-muted-foreground">processed</div></div>
+                    <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center"><div className="text-xl font-semibold">{o?.processed ?? 0}</div><div className="text-[11px] text-muted-foreground">processed</div></div>
                   </>
                 )}
               </div>

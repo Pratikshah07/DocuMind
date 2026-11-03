@@ -187,7 +187,14 @@ export type ExtractionUpdate = {
 
 // --- Analytics, health, meta ------------------------------------------------------
 
-export type CurrencyTotal = { currency: string | null; total: number; document_count: number; average: number };
+export type CurrencyTotal = {
+  currency: string | null;
+  total: number;
+  document_count: number;
+  average: number;
+  tax_total: number;
+  discount_total: number;
+};
 export type AnalyticsOverview = {
   total_documents: number;
   processed: number;
@@ -201,7 +208,17 @@ export type AnalyticsOverview = {
   spend_includes_needs_review: number;
 };
 export type MonthTotal = { month: string; currency: string | null; total: number; document_count: number };
-export type Spending = { months: MonthTotal[]; processed_without_date: number };
+export type Spending = { months: MonthTotal[]; processed_without_date: number; outside_window: number };
+export type Quality = {
+  processed: number;
+  latency_ms_median: number | null;
+  latency_ms_p95: number | null;
+  latency_jobs: number;
+  review_reasons: { key: string; count: number }[];
+  completeness: { field: string; found: number; processed: number }[];
+  corrected_fields: { key: string; count: number }[];
+  documents_corrected: number;
+};
 export type VendorTotal = { vendor: string; currency: string | null; total: number; document_count: number };
 
 export type Health = {
@@ -260,6 +277,7 @@ export const api = {
   analyticsOverview: () => apiJson<AnalyticsOverview>('/analytics/overview'),
   analyticsSpending: () => apiJson<Spending>('/analytics/spending'),
   analyticsVendors: () => apiJson<{ vendors: VendorTotal[] }>('/analytics/vendors'),
+  analyticsQuality: () => apiJson<Quality>('/analytics/quality'),
 };
 
 /** TanStack Query keys. Invalidate `['documents']` / `['analytics']` prefixes after mutations. */
@@ -271,5 +289,5 @@ export const queryKeys = {
   status: (id: string) => ['documents', 'status', id] as const,
   extraction: (id: string) => ['documents', 'extraction', id] as const,
   edits: (id: string) => ['documents', 'edits', id] as const,
-  analytics: (part: 'overview' | 'spending' | 'vendors') => ['analytics', part] as const,
+  analytics: (part: 'overview' | 'spending' | 'vendors' | 'quality') => ['analytics', part] as const,
 };

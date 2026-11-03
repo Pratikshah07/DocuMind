@@ -22,7 +22,7 @@ export default function ChatPage() {
             <div key={title} className="rounded-sm border border-border p-3"><Icon size={15} className="text-primary" /><div className="mt-2 text-xs font-semibold">{title}</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{body}</p></div>
           ))}
         </div>
-        <Link href="/app/documents" className="mt-6 inline-flex items-center gap-2 rounded-sm bg-primary px-3.5 py-2.5 text-xs font-semibold text-primary-foreground">Review your documents</Link>
+        <Link href="/app/documents" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-sm bg-primary px-3.5 py-2.5 text-xs font-semibold text-primary-foreground">Review your documents</Link>
       </section>
     </div>
   );

@@ -40,7 +40,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-foreground/35 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="modal-title" className="w-full max-w-md rounded-md border border-border bg-card p-5 shadow-xl">
-        <div className="flex items-start justify-between gap-3"><h2 id="modal-title" className="text-base font-semibold">{title}</h2><button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" aria-label="Close dialog" data-testid="button-close-dialog"><X size={16} /></button></div>
+        <div className="flex items-start justify-between gap-3"><h2 id="modal-title" className="text-base font-semibold">{title}</h2><button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-sm text-muted-foreground hover:bg-muted lg:h-7 lg:w-7" aria-label="Close dialog" data-testid="button-close-dialog"><X size={16} /></button></div>
         <div className="mt-3">{children}</div>
       </section>
     </div>
@@ -255,7 +255,7 @@ export default function DocumentDetailPage() {
   return (
     <div className="page-enter">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <Link href="/app/documents" className="inline-flex h-10 items-center gap-2 self-start text-xs font-semibold text-muted-foreground hover:text-primary sm:h-auto" data-testid="link-back-documents"><ArrowLeft size={15} />All documents</Link>
+        <Link href="/app/documents" className="inline-flex h-10 items-center gap-2 self-start text-xs font-semibold text-muted-foreground hover:text-primary lg:h-auto" data-testid="link-back-documents"><ArrowLeft size={15} />All documents</Link>
         <div className="flex flex-wrap items-center gap-2">
           {ready && <span className="hidden text-[10px] text-muted-foreground sm:inline" data-testid="text-save-state">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>}
           {ready && <Button variant="outline" onClick={exportJson} testid="button-export-json"><FileJson2 size={15} />JSON</Button>}
@@ -297,7 +297,7 @@ export default function DocumentDetailPage() {
                 {(w.suggested_action || w.page_number) && (
                   <span className="block pl-3 text-[11px] opacity-90">
                     {w.suggested_action}
-                    {w.page_number && w.field && !w.field.startsWith('line_items') && <> <button type="button" className="inline-flex min-h-8 items-center font-semibold underline" onClick={() => showField(w.field!)} data-testid={`button-show-${w.field}`}>Show on page {w.page_number}</button></>}
+                    {w.page_number && w.field && !w.field.startsWith('line_items') && <> <button type="button" className="inline-flex min-h-10 items-center font-semibold underline lg:min-h-8" onClick={() => showField(w.field!)} data-testid={`button-show-${w.field}`}>Show on page {w.page_number}</button></>}
                     {w.page_number && w.field?.startsWith('line_items') && <> (page {w.page_number})</>}
                   </span>
                 )}
@@ -312,9 +312,9 @@ export default function DocumentDetailPage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-xs font-semibold"><FileText size={15} className="text-primary" />Document preview</div>
             <div className="flex items-center gap-1">
-              <button className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" onClick={() => setZoom((z) => Math.max(60, z - 10))} aria-label="Zoom out" data-testid="button-zoom-out"><ZoomOut size={15} /></button>
+              <button className="grid h-10 w-10 place-items-center rounded-sm text-muted-foreground hover:bg-muted lg:h-7 lg:w-7" onClick={() => setZoom((z) => Math.max(60, z - 10))} aria-label="Zoom out" data-testid="button-zoom-out"><ZoomOut size={15} /></button>
               <span className="w-10 text-center font-mono text-[10px]">{zoom}%</span>
-              <button className="grid h-9 w-9 place-items-center rounded-sm text-muted-foreground hover:bg-muted sm:h-7 sm:w-7" onClick={() => setZoom((z) => Math.min(160, z + 10))} aria-label="Zoom in" data-testid="button-zoom-in"><ZoomIn size={15} /></button>
+              <button className="grid h-10 w-10 place-items-center rounded-sm text-muted-foreground hover:bg-muted lg:h-7 lg:w-7" onClick={() => setZoom((z) => Math.min(160, z + 10))} aria-label="Zoom in" data-testid="button-zoom-in"><ZoomIn size={15} /></button>
             </div>
           </div>
           <div className="subtle-grid flex min-h-[260px] justify-center overflow-auto bg-[#eeefeb] p-3 dark:bg-muted/30 sm:min-h-[540px] sm:p-6">
@@ -326,9 +326,9 @@ export default function DocumentDetailPage() {
             <span>{pageCount ? `${pageCount} page${pageCount === 1 ? '' : 's'}` : '—'}{doc.pages[page - 1]?.text_source ? ` · page text from ${doc.pages[page - 1].text_source === 'OCR' ? `OCR (${formatPercent(doc.pages[page - 1].ocr_confidence)} engine confidence)` : 'the PDF text layer'}` : ''}</span>
             {pageCount > 1 && (
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="grid h-10 w-10 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 lg:h-6 lg:w-6" aria-label="Previous page" data-testid="button-page-previous"><ChevronLeft size={14} /></button>
                 <span>{page} / {pageCount}</span>
-                <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} className="grid h-9 w-9 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 sm:h-6 sm:w-6" aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
+                <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} className="grid h-10 w-10 place-items-center rounded-sm hover:bg-muted disabled:opacity-40 lg:h-6 lg:w-6" aria-label="Next page" data-testid="button-page-next"><ChevronRight size={14} /></button>
               </div>
             )}
           </div>
@@ -430,6 +430,7 @@ export default function DocumentDetailPage() {
         </div>
       </div>
 
+      {ready && dirty && <div className="h-20 lg:hidden" aria-hidden="true" data-testid="spacer-mobile-save" />}
       {ready && dirty && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }} data-testid="bar-mobile-save">
           <span className="text-xs font-medium text-muted-foreground">Unsaved changes</span>

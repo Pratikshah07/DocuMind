@@ -453,7 +453,7 @@
   min-width: 0;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1023px) {
   /* iOS Safari zooms the page when a focused field's text is under 16px. */
   input,
   select,
@@ -462,7 +462,7 @@
   }
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639px), (pointer: coarse) and (max-width: 1023px) {
   /* The desktop design uses 9–11px micro-labels; on phones raise them to a readable size
      (app pages only; the landing page has its own sizes). */
   .app-main .text-\[9px\] {

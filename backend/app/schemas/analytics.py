@@ -11,6 +11,8 @@ class CurrencyTotalOut(BaseModel):
     total: Amount
     document_count: int
     average: Amount
+    tax_total: Amount = Field(description="Sum of extracted tax on the same documents.")
+    discount_total: Amount = Field(description="Sum of extracted discounts on the same documents.")
 
 
 class AnalyticsOverview(BaseModel):
@@ -38,6 +40,9 @@ class SpendingResponse(BaseModel):
     processed_without_date: int = Field(
         description="Documents with a total but no invoice date (not charted)."
     )
+    outside_window: int = Field(
+        description="Dated documents older than the chart window (24 months back from the latest date)."
+    )
 
 
 class VendorTotalOut(BaseModel):
@@ -49,3 +54,29 @@ class VendorTotalOut(BaseModel):
 
 class VendorsResponse(BaseModel):
     vendors: list[VendorTotalOut]
+
+
+class CountOut(BaseModel):
+    key: str
+    count: int
+
+
+class CompletenessOut(BaseModel):
+    field: str
+    found: int = Field(description="Processed documents where a value was found (or entered).")
+    processed: int
+
+
+class QualityResponse(BaseModel):
+    processed: int
+    latency_ms_median: int | None = Field(
+        description="Median processing time of successful runs (most recent 500), in ms."
+    )
+    latency_ms_p95: int | None
+    latency_jobs: int = Field(description="How many runs the latency figures are based on.")
+    review_reasons: list[CountOut] = Field(
+        description="Warning codes by number of processed documents they appear on (top 10)."
+    )
+    completeness: list[CompletenessOut] = Field(description="How often each key field was found.")
+    corrected_fields: list[CountOut] = Field(description="Fields by number of documents a user corrected.")
+    documents_corrected: int

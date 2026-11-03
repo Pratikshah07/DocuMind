@@ -66,7 +66,7 @@ export default function SettingsPage() {
 
           <Section title="Delete your data" caption="Removes every document, extracted value and stored file in this workspace." icon={Trash2}>
             {!confirming ? (
-              <button type="button" onClick={() => setConfirming(true)} className="rounded-sm border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-700 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40" data-testid="button-delete-all">Delete all my documents…</button>
+              <button type="button" onClick={() => setConfirming(true)} className="min-h-11 rounded-sm border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-700 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40" data-testid="button-delete-all">Delete all my documents…</button>
             ) : (
               <div className="flex flex-wrap items-center gap-2" role="alert">
                 <span className="text-red-700 dark:text-red-300">This cannot be undone.</span>
@@ -82,7 +82,7 @@ export default function SettingsPage() {
             <div className="flex items-start gap-3"><Settings2 size={16} className="mt-0.5 text-primary" /><div><h2 className="text-sm font-semibold">Appearance</h2><p className="mt-1 text-[10px] text-muted-foreground">Saved in this browser.</p></div></div>
             <div className="mt-4 flex gap-2">
               {(['light', 'dark'] as const).map((t) => (
-                <button key={t} type="button" onClick={() => chooseTheme(t)} aria-pressed={theme === t} className={`h-10 flex-1 rounded-sm border px-2 text-[11px] capitalize sm:h-auto sm:p-2 sm:text-[10px] ${theme === t ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground'}`} data-testid={`button-theme-${t}`}>{t}</button>
+                <button key={t} type="button" onClick={() => chooseTheme(t)} aria-pressed={theme === t} className={`h-10 flex-1 rounded-sm border px-2 text-[11px] capitalize lg:h-auto lg:p-2 lg:text-[10px] ${theme === t ? 'border-primary bg-accent text-primary' : 'border-border text-muted-foreground'}`} data-testid={`button-theme-${t}`}>{t}</button>
               ))}
             </div>
           </section>
