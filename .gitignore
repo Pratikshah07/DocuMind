@@ -26,3 +26,7 @@ Thumbs.db
 # Backend runtime data (see backend/.gitignore)
 backend/storage/
 backend/chroma/
+
+# Python bytecode (anywhere)
+__pycache__/
+*.pyc
