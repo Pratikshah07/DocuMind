@@ -1,4 +1,4 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
+import { type ComponentType, lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowRight, ArrowLeft, BarChart3, Check, CircleAlert, CloudUpload, FileCheck2, FileText, Github,
@@ -8,14 +8,16 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { buttonBase } from '@/lib/ui';
-import AnalyticsPage from '@/pages/analytics';
 import ChatPage from '@/pages/chat';
-import DashboardPage from '@/pages/dashboard';
 import DocumentDetailPage from '@/pages/document-detail';
 import DocumentsPage from '@/pages/documents';
 import SettingsPage from '@/pages/settings';
 import UploadPage from '@/pages/upload';
 import { api, queryKeys } from '@/services/api';
+
+// The chart pages pull in Recharts (~115 kB gzipped); load them only when opened.
+const AnalyticsPage = lazy(() => import('@/pages/analytics'));
+const DashboardPage = lazy(() => import('@/pages/dashboard'));
 
 const REPO_URL = 'https://github.com/Pratikshah07/DocuMind';
 const SAMPLES_URL = `${REPO_URL}/tree/main/backend/samples`;
@@ -226,7 +228,7 @@ function NotFoundPage() {
   return <div className="grid min-h-[100dvh] place-items-center bg-background p-5"><div className="max-w-md text-center"><span className="font-mono text-xs text-primary">404 · Not found</span><h1 className="mt-3 text-3xl font-semibold tracking-tight">This page isn't in the workspace.</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">The link may be out of date, or the document may have been removed.</p><Link href="/app/dashboard" className={`${buttonBase} mt-6 bg-primary text-primary-foreground`} data-testid="link-not-found-home">Back to workspace</Link></div></div>;
 }
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
-const inShell = (Page: ComponentType) => () => <RoutedErrorBoundary><AppShell><Page /></AppShell></RoutedErrorBoundary>;
+const inShell = (Page: ComponentType) => () => <RoutedErrorBoundary><AppShell><Suspense fallback={<div className="h-64 animate-pulse rounded-md bg-muted" aria-label="Loading" />}><Page /></Suspense></AppShell></RoutedErrorBoundary>;
 
 function Router() {
   return (

@@ -22,6 +22,7 @@ SAMPLES = ROOT / "backend" / "samples"
 PROCESS_TIMEOUT = 180_000  # ms; first OCR on a cold free-tier instance can be slow
 
 results: list[tuple[str, bool, str]] = []
+on_failure = None  # set in main(): screenshot + the full error, for diagnosing a failed step
 
 
 def step(name: str):
@@ -35,6 +36,8 @@ def step(name: str):
             except Exception as exc:  # noqa: BLE001 - report and continue to the next step
                 results.append((name, False, f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"))
                 print(f"FAIL  {name}  {type(exc).__name__}: {str(exc).splitlines()[0][:200]}")
+                if on_failure:
+                    on_failure(name, exc)
 
         return run
 
@@ -71,6 +74,17 @@ def main() -> int:
         page.set_default_timeout(30_000)
         page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
+
+        def capture(name: str, exc: Exception) -> None:
+            safe = re.sub(r"[^A-Za-z0-9]+", "-", name)[:40]
+            try:
+                page.screenshot(path=shots / f"FAILED-{safe}.png", full_page=True)
+            except Exception:  # noqa: BLE001
+                pass
+            print("      " + str(exc).replace("\n", "\n      ")[:1500])
+
+        global on_failure
+        on_failure = capture
 
         @step("1. Landing page loads")
         def landing():
@@ -179,6 +193,10 @@ def main() -> int:
             page.get_by_test_id("button-reprocess").click()
             expect(page.get_by_test_id("checkbox-discard-corrections")).not_to_be_checked()
             page.get_by_test_id("button-confirm-reprocess").click()
+            # Wait for the request to be accepted (dialog closes) and the new run to finish; checking the
+            # field earlier would pass on the form from before the reprocess.
+            expect(page.get_by_test_id("button-confirm-reprocess")).to_have_count(0, timeout=60_000)
+            expect(page.get_by_test_id("banner-processing")).to_have_count(0, timeout=PROCESS_TIMEOUT)
             expect(page.get_by_test_id("input-field-total")).to_have_value("2195.00", timeout=PROCESS_TIMEOUT)
             expect(page.get_by_test_id("status-completed").first).to_be_visible()
             history = page.get_by_test_id("section-edit-history")

@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           // Long-lived vendor chunks: charts and React change far less often than app code.
-          manualChunks: { charts: ['recharts'], react: ['react', 'react-dom', 'wouter', '@tanstack/react-query'] },
+          manualChunks: { react: ['react', 'react-dom', 'wouter', '@tanstack/react-query'] },
         },
       },
     },

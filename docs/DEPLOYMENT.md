@@ -32,8 +32,9 @@ Every push to `main` redeploys automatically (`autoDeploy: true`).
   workspace key; the server stores only its SHA-256 and filters every query by it.
   Visitors cannot see each other's documents. This is anonymous isolation, **not
   authentication**: whoever has a browser's key has that workspace.
-- **`RETENTION_HOURS=24`**: documents and files are deleted after a day (swept
-  every 15 minutes while the instance is awake, and at start-up).
+- **`RETENTION_HOURS=24`**: documents and files are deleted after a day. The
+  maintenance loop sweeps every 15 minutes while the instance is awake, and at
+  start-up; it also removes orphaned files and recovers interrupted jobs.
 - **`UPLOAD_RATE_LIMIT_PER_HOUR=20`** per client IP (taken from Render's
   `X-Forwarded-For`, hence `TRUST_PROXY_HEADERS=true`), and **`MAX_DOCUMENTS_PER_WORKSPACE=25`**.
 - **`MAX_CONCURRENT_JOBS=1`, `MAX_PAGES=10`**: OCR is memory-hungry, and one job
@@ -62,6 +63,76 @@ docker run -p 8000:8000 \
 Locally, `docker compose --profile app up -d --build` runs the same image and
 settings on <http://127.0.0.1:8080>.
 
+## Release process (keep the live site safe)
+
+`main` is production: Render redeploys every push to it. Work happens on a feature
+branch and reaches `main` only after these gates pass:
+
+1. **Backend:** `pytest` on SQLite and on PostgreSQL, `ruff check`, `ruff format --check`,
+   `alembic check`, and `python scripts/evaluate_extraction.py`.
+2. **Frontend:** `npm test` and `npm run build`.
+3. **Staging:** the production image, run locally under the same constraints as Render free:
+
+   ```bash
+   docker build -t documind:staging .
+   # A throwaway database, first migrated to the revision production is on
+   # (check its alembic_version), plus a row, so the upgrade path is tested.
+   docker exec documind-postgres-1 psql -U documind -d documind -c "CREATE DATABASE documind_staging"
+   (cd backend && alembic -x url=postgresql+psycopg://documind:documind@127.0.0.1:5432/documind_staging upgrade 0002)
+   docker run -d --name documind-staging --memory 512m --cpus 1 -p 8090:8000 -e PORT=8000      -e DATABASE_URL=postgres://documind:documind@host.docker.internal:5432/documind_staging      -e DEMO_MODE=true -e RETENTION_HOURS=24 -e MAX_DOCUMENTS_PER_WORKSPACE=25      -e MAX_UPLOAD_SIZE=10485760 -e MAX_PAGES=10 -e MAX_CONCURRENT_JOBS=1      -e STORAGE_BACKEND=database -e TRUST_PROXY_HEADERS=true documind:staging
+   python e2e/run_e2e.py http://127.0.0.1:8090
+   python e2e/mobile_audit.py http://127.0.0.1:8090 --out shots/
+   python e2e/benchmark_api.py http://127.0.0.1:8090   # watch `docker stats` for memory
+   ```
+4. **Merge** the branch into `main` (a normal merge, no history rewrite) and push.
+   Render builds and deploys; the container applies migrations before serving.
+5. **Verify production:** run `python e2e/run_e2e.py https://documind-klhw.onrender.com`
+   and check that `/api/health` shows `database` and `ocr` as `ok`.
+
+## Migrations
+
+- They run automatically at container start (`alembic upgrade head`). A failed
+  migration stops the deploy, so Render keeps the previous version serving.
+- Every revision so far is additive (new tables, columns with server defaults,
+  indexes). Each one is tested upgrading a populated database and on a down/up round trip.
+- Never test a migration against the production database; use a copy or the staging
+  recipe above.
+
+## Rollback
+
+- **Code:** in the Render dashboard, open the service, go to **Events** / **Deploys**,
+  pick the last good deploy and choose **Rollback**. Alternatively, `git revert` the
+  merge commit on `main` and push, which keeps history intact.
+- **Schema:** migrations are additive, so the previous code version runs fine on the
+  newer schema; a database rollback is normally unnecessary. If one is required,
+  run `alembic downgrade <revision>` from a shell with the production `DATABASE_URL`,
+  after taking a backup. Downgrading 0003 → 0002 drops the correction history
+  (`extraction_edits`) and two indexes.
+
+## Backups and data lifetime
+
+- **The free Render PostgreSQL has no automatic backups, and Render deletes free
+  databases 30 days after creation** unless upgraded. For this deployment that is
+  about 30 days after the end of October 2026; check the date shown in the dashboard.
+  Upgrade the database (or recreate it and redeploy) before then.
+- Manual backup with the database's *External Database URL* (Render dashboard →
+  database → Connect): `pg_dump --format=custom "$EXTERNAL_URL" > documind.dump`.
+  Restore with `pg_restore --clean --no-owner -d "$NEW_URL" documind.dump`.
+- Demo uploads expire after 24 h anyway (`RETENTION_HOURS`), and files live in the
+  same database (`STORAGE_BACKEND=database`), so one dump captures everything.
+
+## Resource notes
+
+- **Memory:** one photo OCR peaked at about 290 MiB in a 512 MB container after D64
+  (`MALLOC_ARENA_MAX=2` and `malloc_trim` after each job); before that fix it reached
+  510 MiB. Keep `MAX_CONCURRENT_JOBS=1` on 512 MB. See [BENCHMARKS.md](BENCHMARKS.md).
+- **Optional LLM:** it needs a separate machine or service running Ollama, with about
+  4 GB RAM for a 3B model. Render free cannot host one.
+  - To enable it, run Ollama on a private host and set `LLM_PROVIDER=ollama`,
+    `OLLAMA_URL` and `OLLAMA_MODEL`. Expect several seconds per document on CPU.
+  - Documents are sent to that host, so it must be one you control.
+  - The demo leaves this off.
+
 ## Smoke test after deploying
 
 ```bash
@@ -78,9 +149,8 @@ This drives the real UI in Chromium:
 ## Known limitations of this setup
 
 - **Processing runs inside the web process** (FastAPI background tasks):
-  - A restart or deploy during processing loses that job. The document stays
-    in a processing state until the 15-minute stale timeout, then it can be
-    retried from its page.
+  - A restart or deploy during processing loses that job. At start-up the job is
+    marked `interrupted` and the document shows a Retry button (D50).
   - Fine for a low-traffic demo; a real queue (Celery/RQ) would implement the
     existing `JobRunner` interface.
 - **Single instance only:** the rate limiter is in memory and per process.

@@ -20,6 +20,8 @@ Consistency rules:
   retry overwrites them); previews no longer referenced are deleted after it.
 """
 
+import ctypes
+import gc
 import io
 import logging
 import threading
@@ -102,6 +104,24 @@ def _job_slots(limit: int) -> threading.BoundedSemaphore:
         return _SLOTS.setdefault(limit, threading.BoundedSemaphore(limit))
 
 
+def _load_malloc_trim():
+    try:
+        return ctypes.CDLL("libc.so.6").malloc_trim
+    except (OSError, AttributeError):  # not glibc (Windows, macOS, musl): nothing to do
+        return None
+
+
+_MALLOC_TRIM = _load_malloc_trim()
+
+
+def _release_memory() -> None:
+    """Hand freed memory back to the OS after a run. Rendering and OCR allocate large image
+    buffers; glibc otherwise keeps them, and a 512 MB host runs out on the next document."""
+    gc.collect()
+    if _MALLOC_TRIM is not None:
+        _MALLOC_TRIM(0)
+
+
 def preview_key(document_id: uuid.UUID, page_number: int) -> str:
     return f"{PREVIEWS}/{document_id}/page-{page_number}.png"
 
@@ -142,7 +162,10 @@ class DocumentProcessor:
         # Bound how many documents are processed at once in this process (OCR is CPU/memory heavy);
         # further jobs wait here, in QUEUED, until a slot frees up.
         with _job_slots(self.config.max_concurrent_jobs):
-            self._run(job_id)
+            try:
+                self._run(job_id)
+            finally:
+                _release_memory()
 
     def _run(self, job_id: uuid.UUID) -> None:
         with self.session_factory() as db:

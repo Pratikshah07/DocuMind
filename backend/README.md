@@ -17,17 +17,18 @@ through interfaces.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | Per-component status (`ok` / `degraded`) |
-| POST | `/api/documents/upload` | Multipart field `file`. **202** + `Location`; processing is queued (`job_id`) |
+| POST | `/api/documents/upload` | Multipart field `file`. **202** + `Location`; processing is queued (`job_id`). 409 `duplicate_document` (with the existing ID) for a file already in the workspace, unless `allow_duplicate=true` |
 | GET | `/api/documents` | `q`, `status` (repeatable), `document_type`, `date_from`, `date_to`, `sort` (`newest`, `oldest`, `amount_desc`, `amount_asc`, `vendor`), `limit` (1–100), `offset` |
 | GET | `/api/documents/{id}` | Detail with pages (text, source, OCR confidence), fields, line items, warnings |
-| GET | `/api/documents/{id}/status` | Status, page count, user-safe error, latest job (stage, attempt, timing, `error_code`) |
-| POST | `/api/documents/{id}/process` | 202. Retry or reprocess. 409 `already_processing` while a job is active |
+| GET | `/api/documents/{id}/status` | Status, page count, user-safe error, latest job (stage, attempt, timing, `error_code`, `retryable`) |
+| POST | `/api/documents/{id}/process` | 202. Retry or reprocess; corrections are re-applied unless `discard_corrections=true`. 409 `already_processing` while a job is active |
 | GET | `/api/documents/{id}/pages/{n}/preview` | PNG preview of page *n* (1-based) |
 | GET | `/api/documents/{id}/extraction` | Fields with status/confidence/provenance, line items, warnings. 409 until processed |
 | PATCH | `/api/documents/{id}/extraction` | Correct fields / document type / line items, then re-validate. 422 on invalid input (nothing applied) |
+| GET | `/api/documents/{id}/edits` | Correction history (old → new values, resets) |
 | GET | `/api/documents/{id}/file` | Streams the original file |
 | DELETE | `/api/documents` | Deletes every document in the caller's workspace |
-| GET | `/api/analytics/overview` · `/spending` · `/vendors` | Counts and per-currency totals from stored documents |
+| GET | `/api/analytics/overview` · `/spending` · `/vendors` · `/quality` | SQL aggregates per workspace: counts, per-currency totals (with tax/discount), months, vendors, latency, review reasons, field completeness, corrected fields |
 | GET | `/api/meta` | Public limits (demo mode, retention, upload size, …) for the UI |
 | DELETE | `/api/documents/{id}` | 204. Removes the rows (cascade), the stored file and the previews |
 
@@ -46,17 +47,21 @@ UPLOADED ─► PROCESSING ─► OCR (if needed) ─► EXTRACTING ─► VALID
 - **Retries:** each attempt is a `processing_jobs` row (`attempt` 1, 2, …).
   Pages always reflect the last *successful* run, and a failed run clears
   them. An active job blocks a new one, unless it's older than
-  `PROCESSING_STALE_AFTER_SECONDS` (e.g. the server restarted mid-run).
+  `PROCESSING_STALE_AFTER_SECONDS`. At start-up (and every
+  `MAINTENANCE_INTERVAL_SECONDS`) jobs left running by a restart are failed with the
+  retryable code `interrupted`.
 - **Failure codes:** `corrupt_pdf`, `encrypted_pdf`, `empty_document`,
   `too_many_pages`, `corrupt_image`, `image_too_large`, `no_text_found`,
-  `ocr_unavailable`, `ocr_failed`, `file_missing`, `internal_error`.
+  `ocr_unavailable`, `ocr_failed`, `file_missing`, `internal_error`, `interrupted`.
+  `job.retryable` is false for the ones a retry can't fix (corrupt, encrypted, too
+  large, no text, missing file).
   `documents.error_message` holds a user-safe sentence. Technical detail
   (never document content) goes to `processing_jobs.error_detail` and is
   not exposed by the API.
 
 ### Extraction and validation
 
-Deterministic layers (no LLM or paid API), in `app/services/extraction/`:
+Deterministic layers in `app/services/extraction/`. An optional local LLM (`LLM_PROVIDER=ollama`, off by default) may only fill missing fields with values that appear verbatim in the document; see `app/services/llm.py`.
 
 1. **Normalize** the text: Unicode, dashes, column gaps. Labels are matched
    OCR-tolerantly ("T0TAL", "lnvoice").
@@ -104,7 +109,8 @@ Warning codes:
 - **Rules:** `missing_required_field`, `document_type_unknown`,
   `due_before_invoice_date`, `date_in_future`, `date_implausible`,
   `negative_amount`, `totals_mismatch`, `line_items_mismatch`,
-  `line_item_arithmetic`.
+  `line_item_arithmetic`, `low_confidence`, `duplicate_invoice_number`.
+- Every warning in the API also has `page_number` and `suggested_action`.
 
 **Corrections (`PATCH`):**
 - Edited fields get method `user` and confidence 1.0, and are marked
@@ -113,8 +119,10 @@ Warning codes:
   fields are kept; every rule is re-checked.
 - The request is atomic: one invalid value rejects all of it, and nothing
   changes.
-- **Reprocessing** (`POST /process`) runs a fresh extraction and replaces
-  earlier corrections.
+- Every submitted value is recorded in `extraction_edits` (old → new).
+- **Reprocessing** (`POST /process`) runs a fresh extraction, then re-applies the
+  latest correction per field (D48). `discard_corrections=true` records a reset
+  instead; the history keeps everything.
 
 ### Upload rules
 

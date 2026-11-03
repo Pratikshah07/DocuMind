@@ -34,7 +34,10 @@ COPY backend/alembic ./alembic
 COPY backend/app ./app
 COPY --from=frontend /frontend/dist ./static
 
+# MALLOC_ARENA_MAX: jobs run on worker threads; one malloc arena per thread kept ~390 MB of freed
+# image buffers resident after processing (measured, docs/BENCHMARKS.md). Two arenas avoid that.
 ENV ENVIRONMENT=production \
+    MALLOC_ARENA_MAX=2 \
     LOG_FORMAT=json \
     STATIC_DIR=/app/static \
     CORS_ORIGINS=""
