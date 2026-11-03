@@ -28,6 +28,7 @@ sys.path.insert(0, str(BACKEND))
 from app.core.config import get_settings  # noqa: E402
 from app.services.evaluation import resolve_truth, score_sample, summarize  # noqa: E402
 from app.services.extraction_service import ExtractionEngine, extraction_config  # noqa: E402
+from app.services.llm import LLMAssistedExtractor, build_provider  # noqa: E402
 from app.services.ocr import TesseractOCR  # noqa: E402
 from app.services.pipeline import DocumentProcessor, ProcessorConfig  # noqa: E402
 
@@ -43,10 +44,18 @@ def _json(value):
     return value
 
 
-def run(only: list[str] | None = None) -> tuple[list, list[dict]]:
+def run(only: list[str] | None = None, *, llm: bool = False) -> tuple[list, list[dict]]:
     settings = get_settings()
     ocr = TesseractOCR(cmd=settings.tesseract_cmd, language=settings.ocr_language)
-    engine = ExtractionEngine(extraction_config(settings))
+    config = extraction_config(settings)
+    extractor = None
+    if llm:  # compare against the rule baseline on the same labelled samples
+        provider = build_provider(settings)
+        if provider is None:
+            raise SystemExit("Set LLM_PROVIDER=ollama (and OLLAMA_MODEL) to evaluate with a model.")
+        print(f"Using {provider.check_available()}")
+        extractor = LLMAssistedExtractor(provider, date_order=config.date_order)
+    engine = ExtractionEngine(config, extractor=extractor)
     processor = DocumentProcessor(
         session_factory=None,  # read_pages never touches the database
         storage=None,  # type: ignore[arg-type]
@@ -152,9 +161,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", help="Write the markdown report to this file.")
     parser.add_argument("--details", action="store_true", help="Print each wrong field with values.")
+    parser.add_argument(
+        "--llm", action="store_true", help="Use the configured language model (LLM_PROVIDER)."
+    )
     parser.add_argument("samples", nargs="*")
     args = parser.parse_args()
-    scores, timings = run(args.samples or None)
+    scores, timings = run(args.samples or None, llm=args.llm)
     text = report(scores, timings)
     print(text)
     if args.details:

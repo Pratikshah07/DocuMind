@@ -92,7 +92,7 @@ export default function SettingsPage() {
             {health.isError ? <p className="mt-3 text-xs text-red-700">Cannot reach the server.</p> : !health.data ? <div className="mt-3 h-16 animate-pulse rounded-sm bg-muted" /> : (
               <div className="mt-3 space-y-2 text-xs">
                 {Object.entries(health.data.components).map(([name, c]) => (
-                  <div key={name} className="flex items-center justify-between"><span className="capitalize text-muted-foreground">{name === 'ocr' ? 'OCR engine' : name}</span><span className={`inline-flex items-center gap-1.5 font-medium ${c.status === 'ok' ? 'text-[#386f58]' : 'text-red-700'}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{c.status === 'ok' ? 'Operational' : 'Unavailable'}</span></div>
+                  <div key={name} className="flex items-center justify-between"><span className="capitalize text-muted-foreground">{name === 'ocr' ? 'OCR engine' : name === 'llm' ? 'Language model' : name}</span><span className={`inline-flex items-center gap-1.5 font-medium ${c.status === 'ok' ? 'text-[#386f58]' : c.status === 'disabled' ? 'text-muted-foreground' : 'text-red-700'}`} title={c.detail ?? undefined}><span className="h-1.5 w-1.5 rounded-full bg-current" />{c.status === 'ok' ? 'Operational' : c.status === 'disabled' ? 'Not enabled' : 'Unavailable'}</span></div>
                 ))}
                 <div className="flex items-center justify-between border-t border-border pt-2 text-[10px] text-muted-foreground"><span>API version</span><span>{health.data.version}</span></div>
               </div>

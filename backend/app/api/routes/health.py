@@ -8,6 +8,7 @@ from app.api.deps import get_ocr_service
 from app.core.config import Settings, get_settings
 from app.db.session import check_database, get_db
 from app.schemas.health import ComponentHealth, HealthResponse, MetaResponse
+from app.services.llm import LLMError, build_provider
 from app.services.ocr import OCRService, OCRUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,19 @@ def health(
         components["ocr"] = ComponentHealth(
             status="error", detail="OCR engine (Tesseract) is not available; scanned documents will fail."
         )
+
+    provider = build_provider(settings)
+    if provider is None:
+        components["llm"] = ComponentHealth(status="disabled", detail="No language model is configured.")
+    else:
+        try:
+            provider.check_available()
+            components["llm"] = ComponentHealth(status="ok")
+        except LLMError:
+            # Optional component: extraction falls back to the rules, so this is not an error.
+            components["llm"] = ComponentHealth(
+                status="disabled", detail="Language model unreachable; rule-based extraction only."
+            )
 
     overall = "ok" if all(c.status != "error" for c in components.values()) else "degraded"
     return HealthResponse(

@@ -422,7 +422,7 @@ export default function DocumentDetailPage() {
 
               <div className="rounded-sm border border-[#e7e4d9] bg-[#f8f7f1] p-3.5 text-[10px] leading-5 text-muted-foreground dark:border-border dark:bg-muted/40">
                 <span className="font-semibold text-foreground">About these values</span>
-                <p className="mt-1">Fields were extracted with deterministic rules{doc.pages.some((p) => p.text_source === 'OCR') ? ' from OCR text' : ' from the PDF text layer'}. Confidence is a heuristic score (overall {formatPercent(data.overall_confidence)}), not measured accuracy. Always check figures against the document.</p>
+                <p className="mt-1">Fields were extracted with deterministic rules{doc.pages.some((p) => p.text_source === 'OCR') ? ' from OCR text' : ' from the PDF text layer'}{data.fields.some((f) => f.method === 'llm') ? '; fields marked as language-model suggestions were found only by a local model, checked to appear in the document text, and need your confirmation' : ''}. Confidence is a heuristic score (overall {formatPercent(data.overall_confidence)}), not measured accuracy. Always check figures against the document.</p>
               </div>
               <EditHistory documentId={id} />
             </>

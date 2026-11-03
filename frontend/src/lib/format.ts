@@ -72,4 +72,5 @@ export const METHOD_LABEL: Record<string, string> = {
   pattern: 'Inferred from layout',
   user: 'Edited by you',
   rule: 'Rule-based classifier',
+  llm: 'Suggested by a language model (unconfirmed)',
 };

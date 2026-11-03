@@ -29,6 +29,7 @@ from app.services.extraction.types import (
 )
 
 _BASE = {METHOD_LABEL: 0.95, METHOD_PATTERN: 0.70, METHOD_RULE: 0.90, METHOD_USER: 1.0}
+# Values proposed by a language model (app/services/llm.py) are fixed at 0.5: always reviewed.
 _CONTEXT = {"strong": 1.0, "weak": 0.85, "pattern": 1.0}
 _FLAG_PENALTY = 0.70
 _PENALIZED_FLAGS = {FLAG_AMBIGUOUS_DATE, FLAG_AMBIGUOUS_AMOUNT, FLAG_MULTIPLE_CANDIDATES}

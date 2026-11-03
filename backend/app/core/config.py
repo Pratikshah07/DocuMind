@@ -103,6 +103,14 @@ class Settings(BaseSettings):
     # Allowed rounding difference when checking subtotal + tax − discount = total, etc.
     amount_tolerance: float = Field(default=0.02, ge=0)
 
+    # --- Optional language model (off by default; see app/services/llm.py) ---
+    # "ollama": a local Ollama server fills fields the rules could not find. Documents never leave
+    # the host. Needs several GB of RAM: not suitable for Render's free tier (512 MB).
+    llm_provider: Literal["none", "ollama"] = "none"
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.2:3b"
+    llm_timeout_seconds: float = Field(default=30, gt=0)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

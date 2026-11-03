@@ -11,7 +11,7 @@ export default function ChatPage() {
         <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-accent text-primary"><MessageSquareText size={21} /></span>
         <h2 className="mt-4 text-base font-semibold">Not available in this version</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
-          The plan is retrieval-augmented answers over the page text DocuMind already extracts, with every answer citing its source document and page, and totals answered from the database rather than guessed by a model. Until that is built, this page does not answer questions.
+          The plan is retrieval-augmented answers over the page text DocuMind already extracts, with every answer citing its source document and page, and totals answered from the database rather than guessed by a model. Until that is built, this page does not answer questions. On this public demo it will stay off even then: there are no user accounts, and the free server has too little memory to run a language model.
         </p>
         <div className="mx-auto mt-6 grid max-w-2xl gap-3 text-left sm:grid-cols-3">
           {[

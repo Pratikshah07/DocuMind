@@ -13,6 +13,7 @@ from app.services.analytics_service import AnalyticsService
 from app.services.document_service import DocumentService
 from app.services.extraction_service import ExtractionEngine, ExtractionService, extraction_config
 from app.services.jobs import BackgroundTaskRunner, JobRunner
+from app.services.llm import LLMAssistedExtractor, build_provider
 from app.services.ocr import OCRService, TesseractOCR
 from app.services.pipeline import DocumentProcessor, ProcessorConfig
 from app.services.processing_service import ProcessingService
@@ -73,7 +74,10 @@ OCRDep = Annotated[OCRService, Depends(get_ocr_service)]
 
 
 def get_extraction_engine(settings: SettingsDep) -> ExtractionEngine:
-    return ExtractionEngine(extraction_config(settings))
+    config = extraction_config(settings)
+    provider = build_provider(settings)
+    extractor = LLMAssistedExtractor(provider, date_order=config.date_order) if provider else None
+    return ExtractionEngine(config, extractor=extractor)
 
 
 ExtractionEngineDep = Annotated[ExtractionEngine, Depends(get_extraction_engine)]
